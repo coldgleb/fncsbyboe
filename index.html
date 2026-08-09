@@ -1911,6 +1911,8 @@
         const field = byRound[rnd];
         const gp = field.find(r => isGolub(r['Driver'] || ''))?.['Pos.'];
         if (gp == null) continue;  // этап без него в зачёт не идёт
+        // финишировал последним — очков не набрал никто, колонка была бы пустой
+        if (!field.some(x => x['Pos.'] > gp && x['Driver'] && !isGolub(x['Driver']) && !x['Driver'].includes('(i)'))) continue;
         rounds.push(rnd);
         info[rnd] = { gp, n: field.length };
         for (const r of field) {
