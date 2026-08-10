@@ -2490,6 +2490,10 @@
     </div>
     <div class="modal-stats">${raceStats}</div>
     <div class="modal-stats">${qualStats}</div>
+    <div class="chart-card" style="margin-bottom:16px">
+      <h3>Место в личном зачёте после этапа</h3>
+      <div class="chart-wrap" style="height:220px"><canvas id="chart-driver-rank"></canvas></div>
+    </div>
     <div class="table-scroll"><table class="standings-table" data-sort="auto">
       <thead><tr>
         <th>Этап</th>
@@ -2506,6 +2510,38 @@
           ? '<div class="modal-note"><span class="metric-mark">(metric)</span> — квалификация по метрике: прогноза не было, меньше очков лучше</div>'
           : ''}`;
       document.getElementById('driver-modal').classList.add('open');
+      drawRankChart(driver, base.mfr);
+    }
+
+    // Цвета из бейджей производителей; нет производителя — серый
+    const MFR_COLORS = { Toyota: '#f05555', Chevy: '#f0c000', Ford: '#7799ff' };
+
+    function drawRankChart(driver, mfr) {
+      const id = 'chart-driver-rank';
+      if (state.charts[id]) state.charts[id].destroy();
+      const hist = state.rankHistory[driver] || {};
+      const rounds = state.races.rounds.filter(r => hist[r] != null);
+      if (!rounds.length) { state.charts[id] = null; return; }
+
+      const color = MFR_COLORS[mfr] || '#7a7a9a';
+      const opts = lineChartOptions();
+      opts.plugins.legend.display = false;
+      // 1-е место сверху; шаг только целый — дробных мест не бывает
+      opts.scales.y = { ...opts.scales.y, reverse: true, min: 1, ticks: { ...opts.scales.y.ticks, precision: 0 } };
+      opts.plugins.tooltip = { callbacks: { label: c => ` ${c.raw} место` } };
+
+      state.charts[id] = new Chart(document.getElementById(id), {
+        type: 'line',
+        data: {
+          labels: rounds.map(roundLabel),
+          datasets: [{
+            label: 'Место', data: rounds.map(r => hist[r]),
+            borderColor: color, backgroundColor: color + '20',
+            tension: 0.35, pointRadius: 3, fill: false,
+          }]
+        },
+        options: opts
+      });
     }
 
     function closeDriver() {
@@ -2771,6 +2807,14 @@
         if (!d || d.includes('(i)') || rnd == null || SPRINT_ROUNDS.has(rnd)) continue;
         if (!state.qualsParticipation[d]) state.qualsParticipation[d] = new Set();
         state.qualsParticipation[d].add(rnd);
+      }
+
+      // Место в личном зачёте после каждого этапа — для графика в карточке пилота.
+      // Граница как в renderRoundStandings: клэши относятся к своему этапу
+      state.rankHistory = {};
+      for (const rnd of state.races.rounds) {
+        for (const s of computeStandings(racesRowsWithClash.filter(r => r['Round'] < rnd + 1)))
+          (state.rankHistory[s.driver] ||= {})[rnd] = s.rank;
       }
 
       state.golub = {
