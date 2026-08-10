@@ -1255,6 +1255,31 @@
         </div>
         <div id="table-teams"></div>
       </div>
+      <div class="pivot-card">
+        <h3 title="Очки, набранные за этап (двумя зачётными результатами). В тултипе ячейки — накопительный итог. Клик по заголовку — сортировка">Очки команды за каждый этап</h3>
+        <div class="pivot-body">
+          <div class="pivot-controls">
+            <input class="pivot-search" type="search" placeholder="Поиск команды…" oninput="filterTeamPivot(this.value)">
+          </div>
+          <div class="pivot-scroll" id="pivot-teams"></div>
+        </div>
+      </div>
+      <div class="pivot-card">
+        <h3 title="Какие места пошли в зачёт команде на каждом этапе (два лучших результата)">Зачётные места команды по этапам</h3>
+        <div class="pivot-body">
+          <div class="pivot-controls">
+            <input class="pivot-search" type="search" placeholder="Поиск команды…" oninput="filterTeamPosPivot(this.value)">
+            <div class="pivot-legend">
+              <div class="legend-item"><div class="legend-dot pos-p1"></div> P1</div>
+              <div class="legend-item"><div class="legend-dot pos-gray"></div> P2–5</div>
+              <div class="legend-item"><div class="legend-dot pos-bronze"></div> P6–10</div>
+              <div class="legend-item"><div class="legend-dot pos-green"></div> P11–20</div>
+              <div class="legend-item"><div class="legend-dot pos-purple"></div> P21–max</div>
+            </div>
+          </div>
+          <div class="pivot-scroll" id="pivot-teams-pos"></div>
+        </div>
+      </div>
       <div class="table-card" style="margin-top:14px">
         <div class="table-header">
           <h3>Зачёт владельцев — по номеру машины</h3>
@@ -1625,23 +1650,30 @@
         const team = r['Team'];
         const rnd = r['Round'];
         const d = r['Driver'];
-        if (!team || team === '—' || rnd == null || !d || d.includes('(i)')) continue;
+        // Гость личных очков не получает, но команде приносит и борется за зачётное место
+        // наравне со своими (свои 5-е и 20-е + гость 10-й → в зачёт идут 5-е и 10-е).
+        // «Guest entry» — гость без команды: очки не достаются никому.
+        // Клэш в командный зачёт не идёт (в личный — идёт); сверено с официальными итогами
+        if (!team || team === '—' || team === 'Guest entry' || rnd == null || !d) continue;
+        if (SPRINT_ROUNDS.has(rnd)) continue;
         if (!teamMap[team]) teamMap[team] = { team, roundMap: {}, drivers: new Set(), positions: [] };
         teamMap[team].drivers.add(d);
         if (!teamMap[team].roundMap[rnd]) teamMap[team].roundMap[rnd] = [];
-        teamMap[team].roundMap[rnd].push({ driver: d, pts: scorePts(r['Pos.'], rnd) });
+        teamMap[team].roundMap[rnd].push({ driver: d, pos: r['Pos.'], pts: scorePts(r['Pos.'], rnd) });
         if (r['Pos.'] != null && !SPRINT_ROUNDS.has(rnd)) teamMap[team].positions.push(r['Pos.']);
       }
 
       return Object.values(teamMap).map(t => {
         let total = 0;
         const roundPts = {};
+        const roundBest = {};  // этап → зачётные результаты (кто, какое место, сколько очков)
         const scorers = {}; // пилот → { этапов, очков } среди двух зачётных за этап
         for (const [rnd, results] of Object.entries(t.roundMap)) {
           const best2 = results.sort((a, b) => b.pts - a.pts).slice(0, 2);
           const top2 = best2.reduce((s, v) => s + v.pts, 0);
           total += top2;
           roundPts[parseFloat(rnd)] = top2;
+          roundBest[parseFloat(rnd)] = best2;
           for (const { driver, pts } of best2) {
             const sc = scorers[driver] ||= { rounds: 0, pts: 0 };
             sc.rounds++;
@@ -1649,7 +1681,7 @@
           }
         }
         return {
-          team: t.team, total, roundPts, scorers, drivers: [...t.drivers],
+          team: t.team, total, roundPts, roundBest, scorers, drivers: [...t.drivers],
           bestPositions: t.positions.sort((a, b) => a - b)
         };
       }).sort((a, b) => b.total - a.total).map((t, i) => ({ ...t, rank: i + 1 }));
@@ -1679,7 +1711,7 @@
         html += `<tr class="${rc}">
       <td class="r"><span class="pos-badge">${t.rank}</span></td>
       <td>
-        <strong>${t.team}</strong>${coalMark(t.team)}
+        <strong>${teamLink(t.team)}</strong>${coalMark(t.team)}
         <div class="team-drivers">${t.drivers.sort().join(' · ')}</div>
       </td>
       <td class="r" title="${scorersTooltip(t)}"><strong>${t.total}</strong></td>
@@ -1704,7 +1736,9 @@
     <th class="r" title="Пять лучших финишей">Топ-5</th>
   </tr></thead><tbody>`;
 
-      for (const o of rows) {
+      const page = state.ownerPage || 1;
+      const pages = Math.ceil(rows.length / PAGE_SIZE);
+      for (const o of rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)) {
         const rc = o.rank <= 3 ? `rank-${o.rank}` : '';
         html += `<tr class="${rc}">
       <td class="r"><span class="pos-badge">${o.rank}</span></td>
@@ -1715,12 +1749,85 @@
       <td class="r" style="color:var(--muted)">${o.top5.join(' · ') || '—'}</td>
     </tr>`;
       }
-      document.getElementById('table-owners').innerHTML = html + '</tbody></table></div>';
+      document.getElementById('table-owners').innerHTML = html + '</tbody></table></div>'
+        + paginationHtml(page, pages, `${rows.length} машин`, p => `goOwnerPage(${p})`);
+    }
+
+    function goOwnerPage(p) {
+      state.ownerPage = p;
+      renderOwners();
     }
 
     function filterOwners(val) {
       state.ownerFilter = val;
+      state.ownerPage = 1;
       renderOwners();
+    }
+
+    /* Очки команды за каждый этап (накопительный итог — в тултипе). Сортировка — общий
+       обработчик data-sort="auto": он читает отрисованный текст, годится и для этой таблицы. */
+    function renderTeamPivot() {
+      const rounds = state.races.rounds.filter(r => !SPRINT_ROUNDS.has(r));
+      const q = (state.teamPivotFilter || '').toLowerCase();
+      const teams = state.teamStandings.filter(t => !q || t.team.toLowerCase().includes(q));
+
+      let html = `<table class="pivot-table" data-sort="auto"><thead><tr>
+        <th class="driver-col">Место · Команда</th>
+        ${rounds.map(r => `<th title="${roundFullName(r)}">${roundLabel(r)}</th>`).join('')}
+        <th>Итого</th>
+      </tr></thead><tbody>`;
+
+      for (const t of teams) {
+        html += `<tr class="${t.rank <= 3 ? 'rank-' + t.rank : ''}">
+          <td class="driver-cell"><span class="pos-badge">${t.rank}</span> ${teamLink(t.team)}${coalMark(t.team)}</td>`;
+        let cum = 0;
+        for (const r of rounds) {
+          const got = t.roundPts[r] || 0;
+          cum += got;
+          html += `<td title="${roundFullName(r)}: ${got} очк. · всего ${cum}">${got || '<span style="color:var(--border)">—</span>'}</td>`;
+        }
+        html += `<td class="total-cell">${t.total}</td></tr>`;
+      }
+      document.getElementById('pivot-teams').innerHTML = html + '</tbody></table>';
+    }
+
+    function filterTeamPivot(val) {
+      state.teamPivotFilter = val;
+      renderTeamPivot();
+    }
+
+    // Те же строки и столбцы, но в ячейке — места, которые пошли в зачёт
+    function renderTeamPosPivot() {
+      const rounds = state.races.rounds.filter(r => !SPRINT_ROUNDS.has(r));
+      const q = (state.teamPosFilter || '').toLowerCase();
+      const teams = state.teamStandings.filter(t => !q || t.team.toLowerCase().includes(q));
+
+      let html = `<table class="pivot-table" data-sort="auto"><thead><tr>
+        <th class="driver-col">Место · Команда</th>
+        ${rounds.map(r => `<th title="${roundFullName(r)}">${roundLabel(r)}</th>`).join('')}
+        <th>Итого</th>
+      </tr></thead><tbody>`;
+
+      for (const t of teams) {
+        html += `<tr class="${t.rank <= 3 ? 'rank-' + t.rank : ''}">
+          <td class="driver-cell"><span class="pos-badge">${t.rank}</span> ${teamLink(t.team)}${coalMark(t.team)}</td>`;
+        for (const r of rounds) {
+          const best = (t.roundBest[r] || []).filter(x => x.pos != null);
+          const maxPos = state.roundMaxPos[r] || 40;
+          html += best.length
+            ? `<td title="${best.map(x => `${x.driver} P${x.pos} — ${x.pts} очк.`).join('\n')}">`
+              + best.map(x => `<span class="pos-cell ${posClass(x.pos, maxPos)}">${x.pos}</span>`).join(' ')
+              + '</td>'
+            : '<td><span class="pos-cell pos-none">—</span></td>';
+        }
+        html += `<td class="total-cell">${t.total}</td></tr>`;
+      }
+      document.getElementById('pivot-teams-pos').innerHTML = html + '</tbody></table>';
+    }
+
+    function filterTeamPosPivot(val) {
+      state.teamPosFilter = val;
+      renderTeamPosPivot();
     }
 
     function renderTeamTab() {
@@ -2028,7 +2135,7 @@
         const prevPos = Object.fromEntries(computeTeamStandings(rowsPrev).map(t => [t.team, t.rank]));
         head = '<th>Команда</th><th class="r">Очки</th><th class="r" title="Десять лучших финишей пилотов команды">Топ-10</th>';
         body = computeTeamStandings(rowsNow).map(t => [t.rank, deltaCell(prevPos[t.team], t.rank),
-        `<td><strong>${t.team}</strong>${coalMark(t.team)}</td>
+        `<td><strong>${teamLink(t.team)}</strong>${coalMark(t.team)}</td>
        <td class="r" title="${scorersTooltip(t)}"><strong>${t.total}</strong></td>
        <td class="r" style="color:var(--muted)">${t.bestPositions.slice(0, 10).join(' · ') || '—'}</td>`]);
       } else if (kind === 'st-owners') {
@@ -2329,17 +2436,23 @@
     </tr>`;
       }
 
-      html += '</tbody></table></div><div class="pagination">';
-      if (pages > 1) {
-        if (page > 1) html += `<button class="page-btn" onclick="goPage('${type}',${page - 1})">←</button>`;
-        const lo = Math.max(1, page - 2), hi = Math.min(pages, page + 2);
-        for (let p = lo; p <= hi; p++)
-          html += `<button class="page-btn${p === page ? ' active' : ''}" onclick="goPage('${type}',${p})">${p}</button>`;
-        if (page < pages) html += `<button class="page-btn" onclick="goPage('${type}',${page + 1})">→</button>`;
-      }
-      html += `<span class="page-info">${rows.length} участников</span></div>`;
+      html += '</tbody></table></div>'
+        + paginationHtml(page, pages, `${rows.length} участников`, p => `goPage('${type}',${p})`);
 
       wrap.innerHTML = html;
+    }
+
+    // Общий блок страниц: onClick — функция, отдающая содержимое onclick для страницы p
+    function paginationHtml(page, pages, info, onClick) {
+      let html = '<div class="pagination">';
+      if (pages > 1) {
+        if (page > 1) html += `<button class="page-btn" onclick="${onClick(page - 1)}">←</button>`;
+        const lo = Math.max(1, page - 2), hi = Math.min(pages, page + 2);
+        for (let p = lo; p <= hi; p++)
+          html += `<button class="page-btn${p === page ? ' active' : ''}" onclick="${onClick(p)}">${p}</button>`;
+        if (page < pages) html += `<button class="page-btn" onclick="${onClick(page + 1)}">→</button>`;
+      }
+      return html + `<span class="page-info">${info}</span></div>`;
     }
 
     const SORT_KEYS = {
@@ -2349,13 +2462,11 @@
       best: s => s.best,
     };
 
-    // Клик: сортировка по колонке, повторный — обратный порядок, третий — назад к местам в чемпионате
+    // Клик: по возрастанию, повторный — по убыванию, третий — назад к местам в чемпионате
     function sortTable(type, key) {
       const cur = state.sort[type];
-      const def = key === 'best' ? 'asc' : 'desc'; // «Лучш.» — чем меньше, тем лучше
-      const rev = def === 'desc' ? 'asc' : 'desc';
-      state.sort[type] = !cur || cur.key !== key ? { key, dir: def }
-        : cur.dir === def ? { key, dir: rev }
+      state.sort[type] = !cur || cur.key !== key ? { key, dir: 'asc' }
+        : cur.dir === 'asc' ? { key, dir: 'desc' }
           : null;
       state.page[type] = 1;
       renderTable(type);
@@ -2365,7 +2476,7 @@
        Работает по отрисованному тексту, поэтому годится и для результатов этапа, и для зачётов. */
     function cellValue(td) {
       const t = (td?.textContent || '').trim();
-      if (!t || t === '—' || t === '•') return Infinity;            // пустые — в конец
+      if (!t || t === '—' || t === '•') return null;                // пусто — особый случай
       const m = t.match(/^([▲▼])?\s*[P#+]?\s*(-?\d+(?:[.,]\d+)?)/);
       if (!m) return t.toLowerCase();
       const n = parseFloat(m[2].replace(',', '.'));
@@ -2385,6 +2496,8 @@
       [...body.rows]
         .sort((a, b) => {
           const va = cellValue(a.cells[idx]), vb = cellValue(b.cells[idx]);
+          // пустые всегда внизу — и при возрастании, и при убывании
+          if (va === null || vb === null) return va === vb ? 0 : va === null ? 1 : -1;
           if (typeof va === 'string' || typeof vb === 'string')
             return (asc ? 1 : -1) * String(va).localeCompare(String(vb), 'ru');
           return asc ? va - vb : vb - va;
@@ -2510,20 +2623,19 @@
           ? '<div class="modal-note"><span class="metric-mark">(metric)</span> — квалификация по метрике: прогноза не было, меньше очков лучше</div>'
           : ''}`;
       document.getElementById('driver-modal').classList.add('open');
-      drawRankChart(driver, base.mfr);
+      drawRankChart(state.rankHistory[driver] || {}, MFR_COLORS[base.mfr] || GRAY);
     }
 
     // Цвета из бейджей производителей; нет производителя — серый
     const MFR_COLORS = { Toyota: '#f05555', Chevy: '#f0c000', Ford: '#7799ff' };
+    const GRAY = '#7a7a9a';
 
-    function drawRankChart(driver, mfr) {
+    function drawRankChart(hist, color) {
       const id = 'chart-driver-rank';
       if (state.charts[id]) state.charts[id].destroy();
-      const hist = state.rankHistory[driver] || {};
       const rounds = state.races.rounds.filter(r => hist[r] != null);
       if (!rounds.length) { state.charts[id] = null; return; }
 
-      const color = MFR_COLORS[mfr] || '#7a7a9a';
       const opts = lineChartOptions();
       opts.plugins.legend.display = false;
       // 1-е место сверху; шаг только целый — дробных мест не бывает
@@ -2542,6 +2654,89 @@
         },
         options: opts
       });
+    }
+
+    // Ссылка на карточку команды — из любой таблицы
+    function teamLink(team) {
+      if (!team || team === '—') return team || '—';
+      return `<span class="driver-link" onclick="openTeam('${team.replace(/'/g, "\\'").replace(/"/g, '&quot;')}')">${team}</span>`;
+    }
+
+    /* Карточка команды — та же всплывашка, что у пилота */
+    function openTeam(team) {
+      const t = state.teamStandings.find(x => x.team === team);
+      if (!t) return;
+      const rounds = state.races.rounds.filter(r => !SPRINT_ROUNDS.has(r));
+      const hist = state.teamRankHistory[team] || {};
+      const scored = rounds.filter(r => t.roundBest[r]?.length);
+      const best = t.bestPositions[0];
+      const wins = t.bestPositions.filter(p => p === 1).length;
+
+      const stat = (k, v) => `<div class="modal-stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+      const stats = [
+        stat('Место', `#${t.rank}`),
+        stat('Очки', t.total),
+        stat('Пилотов', t.drivers.length),
+        stat('Этапов в зачёте', scored.length),
+        stat('Лучший финиш', best != null ? 'P' + best : '—'),
+        wins > 0 ? stat('Победы', wins) : stat('Сред. за этап', scored.length ? (t.total / scored.length).toFixed(1) : '—'),
+      ].join('');
+
+      // место команды на самом этапе — по очкам, набранным на нём (равные очки → равное место)
+      const rankInRound = r => {
+        const mine = t.roundPts[r];
+        if (mine == null) return null;
+        return 1 + state.teamStandings.filter(x => (x.roundPts[r] ?? -1) > mine).length;
+      };
+
+      let cum = 0;
+      const body = rounds.map(r => {
+        const bestOfRound = t.roundBest[r] || [];
+        const got = t.roundPts[r] || 0;
+        const rr = rankInRound(r);
+        cum += got;
+        const maxPos = state.roundMaxPos[r] || 40;
+        const cells = bestOfRound.length
+          ? bestOfRound.map(x => `<span class="pos-cell ${posClass(x.pos, maxPos)}">${x.pos}</span>`).join(' ')
+          : '<span style="color:var(--muted)">—</span>';
+        return `<tr>
+          <td><span class="driver-link" title="Открыть результаты этапа" onclick="goToRound(${r})">${roundFullName(r)}</span></td>
+          <td>${cells}</td>
+          <td class="team-text">${bestOfRound.map(x => x.driver).join(' · ') || '—'}</td>
+          <td class="r">${got || '—'}</td>
+          <td class="r">${rr == null ? '—' : `<span class="pos-badge">${rr}</span>`}</td>
+          <td class="r"><strong>${cum}</strong></td>
+          <td class="r">${hist[r] ?? '—'}</td>
+        </tr>`;
+      }).join('');
+
+      document.getElementById('driver-modal-body').innerHTML = `
+    <div class="modal-head">
+      <div>
+        <h2>${team}${coalMark(team)}</h2>
+        <div class="team-text">${t.drivers.slice().sort().join(' · ')}</div>
+      </div>
+      <button class="modal-close" onclick="closeDriver()" title="Закрыть (Esc)">×</button>
+    </div>
+    <div class="modal-stats">${stats}</div>
+    <div class="chart-card" style="margin-bottom:16px">
+      <h3>Место в командном зачёте после этапа</h3>
+      <div class="chart-wrap" style="height:220px"><canvas id="chart-driver-rank"></canvas></div>
+    </div>
+    <div class="table-scroll"><table class="standings-table" data-sort="auto">
+      <thead><tr>
+        <th>Этап</th>
+        <th title="Два лучших результата команды на этапе">Зачётные места</th>
+        <th>Кто принёс</th>
+        <th class="r">Очки</th>
+        <th class="r" title="Место команды на этапе — по очкам, набранным на нём">На этапе</th>
+        <th class="r">Всего</th>
+        <th class="r" title="Место в командном зачёте после этапа">Место</th>
+      </tr></thead>
+      <tbody>${body || '<tr><td colspan="7" style="color:var(--muted)">Нет данных</td></tr>'}</tbody>
+    </table></div>`;
+      document.getElementById('driver-modal').classList.add('open');
+      drawRankChart(hist, GRAY);
     }
 
     function closeDriver() {
@@ -2812,9 +3007,13 @@
       // Место в личном зачёте после каждого этапа — для графика в карточке пилота.
       // Граница как в renderRoundStandings: клэши относятся к своему этапу
       state.rankHistory = {};
+      state.teamRankHistory = {};
       for (const rnd of state.races.rounds) {
-        for (const s of computeStandings(racesRowsWithClash.filter(r => r['Round'] < rnd + 1)))
+        const upTo = racesRowsWithClash.filter(r => r['Round'] < rnd + 1);
+        for (const s of computeStandings(upTo))
           (state.rankHistory[s.driver] ||= {})[rnd] = s.rank;
+        for (const t of computeTeamStandings(upTo))
+          (state.teamRankHistory[t.team] ||= {})[rnd] = t.rank;
       }
 
       state.golub = {
@@ -2846,9 +3045,11 @@
 
       initCharts('races');
       initCharts('quals');
-      initRoundView(roundRows);   // до renderGolub: оттуда берутся названия этапов
+      initRoundView(roundRows);   // до сводных таблиц: оттуда берутся названия этапов
       renderGolub('races');
       renderGolub('quals');
+      renderTeamPivot();
+      renderTeamPosPivot();
       applyHash();
     }
 
