@@ -8,20 +8,32 @@ const COLORS = [
 ];
 const PAGE_SIZE = 20;
 
+/* Дивизионы. Star лежит на своих листах; коалиций и зачёта им. Голубочкина в нём нет,
+   а лист Round общий — календарь этапов один на оба дивизиона. */
+const DIVISIONS = {
+  open: { label: 'Open', races: 'Races', quals: 'Quals', coalitions: 'Coalitions', golub: true },
+  star: { label: 'Star', races: 'Star Races', quals: 'Star Quals', golub: false },
+};
+
 const state = {
+  division: new URLSearchParams(location.hash.slice(1)).get('div') === 'star' ? 'star' : 'open',
   races: { standings: [], rounds: [], rows: [] },
   quals: { standings: [], rounds: [], rows: [] },
   indRaces: { standings: [] },
   indQuals: { standings: [] },
   filter: { races: '', quals: '', indRaces: '', indQuals: '' },
   pivot: { races: '', quals: '' },
-  pivotTeam: { races: '', quals: '' },
   golubFilter: { races: '', quals: '' },
-  golubTeam: { races: '', quals: '' },
   page: { races: 1, quals: 1, indRaces: 1, indQuals: 1 },
   sort: { races: null, quals: null, indRaces: null, indQuals: null },
   charts: {}
 };
+
+// Общий предикат поиска: пустой запрос пропускает всё, иначе — подстрока в любом из полей
+function hit(q, ...fields) {
+  const s = (q || '').trim().toLowerCase();
+  return !s || fields.some(f => String(f ?? '').toLowerCase().includes(s));
+}
 
 function fetchSheet(name) {
   return new Promise((resolve, reject) => {
@@ -67,9 +79,14 @@ function coalMark(team) {
   return state.coalitions?.has(team) ? ' <span class="coal-mark" title="В коалиции">🤝</span>' : '';
 }
 
+/* Производителя в листах пишут по-разному (Chevrolet, Chevy, Chv) — цвет бейджа
+   и линии графика один и тот же, поэтому приводим написание к классу из CSS. */
+const MFR_MATCH = [[/^(toy|tyt)/i, 'Toyota'], [/^(chev|chv)/i, 'Chevy'], [/^(ford|frd)/i, 'Ford']];
+const mfrKey = mfr => MFR_MATCH.find(([re]) => re.test(mfr || ''))?.[1] || mfr;
+
 function mfrBadge(mfr) {
   if (!mfr || mfr === '-') return '';
-  return `<span class="mfr-badge ${mfr}">${mfr}</span>`;
+  return `<span class="mfr-badge ${mfrKey(mfr)}">${mfr}</span>`;
 }
 
 // Общий блок страниц: onClick — функция, отдающая содержимое onclick для страницы p
@@ -88,12 +105,32 @@ function paginationHtml(page, pages, info, onClick) {
 /* ── Сортировка по клику на заголовок для любой таблицы с data-sort="auto" ──
    Работает по отрисованному тексту, поэтому годится и для результатов этапа, и для зачётов. */
 function cellValue(td) {
+  // столбец места: сортируем по исходному месту в зачёте, а не по перенумерованному бейджу
+  if (td?.dataset.rank != null) {
+    const n = parseFloat(td.dataset.rank);
+    return isFinite(n) ? n : null;              // «—» вместо места — вниз, как пустые
+  }
   const t = (td?.textContent || '').trim();
   if (!t || t === '—' || t === '•') return null;                // пусто — особый случай
   const m = t.match(/^([▲▼])?\s*[P#+]?\s*(-?\d+(?:[.,]\d+)?)/);
   if (!m) return t.toLowerCase();
   const n = parseFloat(m[2].replace(',', '.'));
   return m[1] === '▼' ? -n : n;                                 // ▼3 — это −3
+}
+
+/* Места не ездят вместе со строками: после сортировки бейджи всегда 1..n сверху вниз.
+   Исходное место в зачёте уходит в data-rank ячейки — по нему сортируется сам столбец места
+   (клик по «#» возвращает исходный порядок) и живёт тултип. Бейдж места — только в первой
+   ячейке строки; в карточке команды бейджем помечено место на этапе, его трогать нельзя. */
+function renumberPlaces(body) {
+  [...body.rows].forEach((tr, i) => {
+    const badge = tr.cells[0]?.querySelector('.pos-badge');
+    if (!badge) return;
+    if (tr.cells[0].dataset.rank == null) tr.cells[0].dataset.rank = badge.textContent.trim();
+    badge.textContent = i + 1;
+    badge.title = `Место в зачёте: ${tr.cells[0].dataset.rank}`;
+    for (const n of [1, 2, 3]) tr.classList.toggle(`rank-${n}`, i + 1 === n);
+  });
 }
 
 document.addEventListener('click', e => {
@@ -117,6 +154,7 @@ document.addEventListener('click', e => {
     })
     .forEach(r => body.appendChild(r));
 
+  renumberPlaces(body);
   table.dataset.sortCol = idx;
   table.dataset.sortDir = asc ? 'asc' : 'desc';
   th.parentNode.querySelectorAll('.sort-arrow').forEach(a => a.remove());
@@ -133,6 +171,28 @@ function posClass(pos, maxPos) {
   return 'pos-low';
 }
 
+/* Переключение дивизиона — перезагрузкой страницы: данные, фильтры, страницы, сортировки
+   и графики другого дивизиона всё равно надо сбросить полностью, а дивизион уже в хэше. */
+function switchDivision(name) {
+  if (name === state.division || !DIVISIONS[name]) return;
+  location.hash = `div=${name}&tab=races`;
+  location.reload();
+}
+
+// Star: коалиций нет, значит нет и зачёта независимых (там независимы все), и зачёта им. Голубочкина
+function applyDivision() {
+  const div = DIVISIONS[state.division];
+  document.querySelectorAll('.div-btn').forEach(b =>
+    b.classList.toggle('rtog-active', b.dataset.div === state.division));
+
+  const hidden = [...(div.golub ? [] : ['golub']), ...(div.coalitions ? [] : ['ind'])];
+  for (const tab of ['golub', 'ind']) {
+    const on = !hidden.includes(tab);
+    document.querySelector(`.tab-btn[data-tab="${tab}"]`).style.display = on ? '' : 'none';
+    if (!on && document.querySelector('.tab-btn.active')?.dataset.tab === tab) switchTab('races');
+  }
+}
+
 function switchTab(name) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${name}`));
@@ -142,7 +202,7 @@ function switchTab(name) {
 /* ── Состояние в адресной строке: #tab=rounds&round=8&view=qual ── */
 function writeHash() {
   const tab = document.querySelector('.tab-btn.active')?.dataset.tab || 'races';
-  const parts = [`tab=${tab}`];
+  const parts = [`div=${state.division}`, `tab=${tab}`];
   const sel = document.getElementById('round-select');
   if (tab === 'rounds' && sel?.value) parts.push(`round=${sel.value}`, `view=${roundView}`);
   // replaceState, а не pushState — иначе «назад» отматывает каждый клик по вкладке
@@ -154,8 +214,10 @@ const INITIAL_HASH = location.hash;
 
 function applyHash() {
   const p = new URLSearchParams(INITIAL_HASH.slice(1));
+  // вкладка из ссылки может быть скрыта в этом дивизионе — тогда остаёмся на гонках
   const tab = p.get('tab');
-  if (tab && document.getElementById(`tab-${tab}`)) switchTab(tab);
+  const btn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
+  if (tab && document.getElementById(`tab-${tab}`) && btn?.style.display !== 'none') switchTab(tab);
 
   const round = p.get('round');
   const sel = document.getElementById('round-select');

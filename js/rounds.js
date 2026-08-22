@@ -1,6 +1,7 @@
 /* Вкладка «По этапам»: результаты и зачёты после этапа */
 
-function renderRoundTable(containerId, rows, cols) {
+// allRows — полный протокол этапа: подсветку лучших значений поиск сужать не должен
+function renderRoundTable(containerId, rows, cols, allRows = rows) {
   const wrap = document.getElementById(containerId);
   if (!rows.length) { wrap.innerHTML = '<div class="round-empty">Нет данных</div>'; return; }
 
@@ -8,7 +9,7 @@ function renderRoundTable(containerId, rows, cols) {
   const colMax = {}, colMin = {};
   for (const col of cols) {
     const vals = col.maxKey || col.minKey
-      ? rows.map(r => r[col.maxKey || col.minKey]).filter(v => v != null && isFinite(v))
+      ? allRows.map(r => r[col.maxKey || col.minKey]).filter(v => v != null && isFinite(v))
       : [];
     if (col.maxKey) colMax[col.maxKey + col.label] = vals.length ? Math.max(...vals) : null;
     if (col.minKey) colMin[col.minKey + col.label] = vals.length ? Math.min(...vals) : null;
@@ -20,7 +21,7 @@ function renderRoundTable(containerId, rows, cols) {
   for (const col of cols) {
     if (!col.group) continue;
     if (!groupDefs[col.group]) groupDefs[col.group] = { top: col.groupTop || 1, vals: [] };
-    for (const r of rows) {
+    for (const r of allRows) {
       const v = r[col.key];
       if (v != null && isFinite(v)) groupDefs[col.group].vals.push(v);
     }
@@ -95,6 +96,14 @@ function deltaCell(prevRank, rank) {
   return `<span class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'}${Math.abs(d)}</span>`;
 }
 
+// Поиск по вкладке: сужает и протокол этапа, и зачёты после него
+const roundHit = (...fields) => hit(state.roundFilter, ...fields);
+
+function filterRound(val) {
+  state.roundFilter = val;
+  onRoundChange();
+}
+
 // kind: 'st-drivers' | 'st-teams' | 'st-owners' — зачёт по состоянию после этапа
 function renderRoundStandings(kind, roundNum) {
   // Клэши (1.1/1.2) относятся к своему этапу, поэтому граница — до следующего целого
@@ -107,14 +116,16 @@ function renderRoundStandings(kind, roundNum) {
   if (kind === 'st-teams') {
     const prevPos = Object.fromEntries(computeTeamStandings(rowsPrev).map(t => [t.team, t.rank]));
     head = '<th>Команда</th><th class="r">Очки</th><th class="r" title="Десять лучших финишей пилотов команды">Топ-10</th>';
-    body = computeTeamStandings(rowsNow).map(t => [t.rank, deltaCell(prevPos[t.team], t.rank),
+    body = computeTeamStandings(rowsNow).filter(t => roundHit(t.team, ...t.drivers))
+      .map(t => [t.rank, deltaCell(prevPos[t.team], t.rank),
     `<td><strong>${teamLink(t.team)}</strong>${coalMark(t.team)}</td>
    <td class="r" title="${scorersTooltip(t)}"><strong>${t.total}</strong></td>
    <td class="r" style="color:var(--muted)">${t.bestPositions.slice(0, 10).join(' · ') || '—'}</td>`]);
   } else if (kind === 'st-owners') {
     const prevPos = Object.fromEntries(computeOwnerStandings(rowsPrev).map(o => [o.car, o.rank]));
     head = '<th>Номер</th><th>Пилоты</th><th class="r">Очки</th><th class="r" title="Пять лучших финишей">Топ-5</th>';
-    body = computeOwnerStandings(rowsNow).map(o => [o.rank, deltaCell(prevPos[o.car], o.rank),
+    body = computeOwnerStandings(rowsNow).filter(o => roundHit(o.car, ...o.drivers))
+      .map(o => [o.rank, deltaCell(prevPos[o.car], o.rank),
     `<td><strong>#${o.car}</strong></td>
    <td class="team-text">${o.drivers.sort().join(' · ')}</td>
    <td class="r"><strong>${o.total}</strong></td>
@@ -123,7 +134,8 @@ function renderRoundStandings(kind, roundNum) {
     const prevPos = Object.fromEntries(computeStandings(rowsPrev).map(s => [s.driver, s.rank]));
     head = '<th>Гонщик</th><th>Команда</th><th>Авт.</th><th class="r">Очки</th><th class="r">Победы</th>'
       + '<th class="r" title="Пять лучших финишей">Топ-5</th>';
-    body = computeStandings(rowsNow).map(s => [s.rank, deltaCell(prevPos[s.driver], s.rank),
+    body = computeStandings(rowsNow).filter(s => roundHit(s.driver, s.team))
+      .map(s => [s.rank, deltaCell(prevPos[s.driver], s.rank),
     `<td><strong class="driver-link" onclick="openDriver('${s.driver.replace(/'/g, "\\'").replace(/"/g, '&quot;')}')">${s.driver}</strong></td>
    <td class="team-text">${s.team}${coalMark(s.team)}</td>
    <td>${mfrBadge(s.mfr)}</td>
@@ -178,6 +190,7 @@ function onRoundChange() {
     .filter(r => parseFloat(r['Round']) === roundNum)
     .sort((a, b) => (a['Pos.'] || 999) - (b['Pos.'] || 999));
 
+  const hitRow = r => roundHit(r['Driver'], r['Team'], r['#']);
   const raceDrEmpty = raceRows.every(r => DR_KEYS.every(k => r[k] == null));
   const qualDrEmpty = qualRows.every(r => DR_KEYS.every(k => r[k] == null));
 
@@ -223,7 +236,7 @@ function onRoundChange() {
       { key: 'Points', label: 'Очки', cls: 'r', fmt: v => `<strong>${v ?? '—'}</strong>`, ...(raceDrEmpty ? { minKey: 'Points' } : { maxKey: 'Points' }) },
       { key: 'Pos.', label: 'NASCAR', cls: 'r', fmt: (v, r) => `<strong style="color:var(--accent)">${scorePts(r['Pos.'], roundNum)}</strong>` },
     ];
-    renderRoundTable('round-table', raceRows, raceCols);
+    renderRoundTable('round-table', raceRows.filter(hitRow), raceCols, raceRows);
   } else if (roundView === 'clash1' || roundView === 'clash2') {
     const clashLabel = roundView === 'clash1' ? 'Клэш 1' : 'Клэш 2';
     document.getElementById('round-table-title').textContent = `${clashLabel} — ${name}`;
@@ -247,7 +260,7 @@ function onRoundChange() {
       { key: 'Points', label: 'Очки', cls: 'r', fmt: v => `<strong>${v ?? '—'}</strong>`, ...(clashDrEmpty ? { minKey: 'Points' } : { maxKey: 'Points' }) },
       { key: 'Pos.', label: 'NASCAR', cls: 'r', fmt: (v, r) => `<strong style="color:var(--accent)">${scorePts(r['Pos.'], clashNum)}</strong>` },
     ];
-    renderRoundTable('round-table', clashRows, clashCols);
+    renderRoundTable('round-table', clashRows.filter(hitRow), clashCols, clashRows);
   } else {
     document.getElementById('round-table-title').textContent = `Квалификация — ${name}`;
     const qualCols = [
@@ -263,7 +276,7 @@ function onRoundChange() {
       { key: 'Points', label: 'Очки', cls: 'r', fmt: v => `<strong>${v ?? '—'}</strong>`, ...(qualDrEmpty ? { minKey: 'Points' } : { maxKey: 'Points' }) },
       { key: 'Pos.', label: 'NASCAR', cls: 'r', fmt: (v, r) => `<strong style="color:var(--accent)">${scorePts(r['Pos.'], roundNum)}</strong>` },
     ];
-    renderRoundTable('round-table', qualRows, qualCols);
+    renderRoundTable('round-table', qualRows.filter(hitRow), qualCols, qualRows);
   }
 }
 

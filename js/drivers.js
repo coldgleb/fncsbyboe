@@ -36,13 +36,16 @@ function renderTable(type) {
   const rows = sort
     ? [...filtered].sort((a, b) => {
       const va = SORT_KEYS[sort.key](a), vb = SORT_KEYS[sort.key](b);
-      return sort.dir === 'asc' ? va - vb : vb - va;
+      const d = typeof va === 'string' || typeof vb === 'string'
+        ? String(va).localeCompare(String(vb), 'ru')
+        : va - vb;
+      return sort.dir === 'asc' ? d : -d;
     })
     : filtered;
 
-  const sortTh = (key, label, attrs = '') => {
+  const sortTh = (key, label, attrs = '', cls = 'r') => {
     const arrow = sort && sort.key === key ? ` <span class="sort-arrow">${sort.dir === 'asc' ? '▲' : '▼'}</span>` : '';
-    return `<th class="r sortable" ${attrs} onclick="sortTable('${type}','${key}')">${label}${arrow}</th>`;
+    return `<th class="${cls} sortable" ${attrs} onclick="sortTable('${type}','${key}')">${label}${arrow}</th>`;
   };
 
   const page = state.page[type];
@@ -50,22 +53,24 @@ function renderTable(type) {
   const slice = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   let html = `<div class="table-scroll"><table class="standings-table"><thead><tr>
-<th style="width:40px" class="r">#</th>
-<th>Гонщик</th>
-<th>Команда</th>
-<th>Авт.</th>
+${sortTh('rank', '#', 'style="width:40px"')}
+${sortTh('driver', 'Гонщик', '', '')}
+${sortTh('team', 'Команда', '', '')}
+${sortTh('mfr', 'Авт.', '', '')}
 ${sortTh('total', 'Очки')}
-${withChase ? '<th class="r" title="В Чейзе — преимущество над первым вне Чейза; вне Чейза — отставание от последнего из Чейза">± Чейз</th>' : ''}
+${withChase ? sortTh('chase', '± Чейз', 'title="В Чейзе — преимущество над первым вне Чейза; вне Чейза — отставание от последнего из Чейза"') : ''}
 ${sortTh('wins', 'Победы', 'title="Количество побед (тай-брейк 1)"')}
 ${sortTh('starts', 'Гонок / Квал.', 'title="Проходов в гонку / участий в квалификации"')}
 ${sortTh('best', 'Лучш.')}
   </tr></thead><tbody>`;
 
-  for (const s of slice) {
+  slice.forEach((s, i) => {
+    // при своей сортировке места фиксированы: 1..n сверху вниз, место в зачёте — в тултипе
+    const place = sort ? (page - 1) * PAGE_SIZE + i + 1 : s.rank;
     const inPlayoff = playoffSet.has(s.driver);
     const isCutoff = cutoffDriver && s.driver === cutoffDriver.driver;
     const rc = [
-      s.rank <= 3 ? `rank-${s.rank}` : '',
+      place <= 3 ? `rank-${place}` : '',
       inPlayoff ? 'row-playoff' : '',
       isCutoff ? 'row-cutoff' : '',
     ].filter(Boolean).join(' ');
@@ -75,7 +80,7 @@ ${sortTh('best', 'Лучш.')}
       : `<span style="color:var(--muted)">—</span>`;
     const tb = driverTooltip(s);
     html += `<tr class="${rc}" title="${tb}">
-  <td class="r"><span class="pos-badge">${s.rank}</span></td>
+  <td class="r"><span class="pos-badge"${sort ? ` title="Место в зачёте: ${s.rank}"` : ''}>${place}</span></td>
   <td><strong class="driver-link" onclick="openDriver('${s.driver.replace(/'/g, "\\'").replace(/"/g, '&quot;')}')">${s.driver}</strong></td>
   <td class="team-text">${s.team}${coalMark(s.team)}</td>
   <td>${mfrBadge(s.mfr)}</td>
@@ -85,7 +90,7 @@ ${sortTh('best', 'Лучш.')}
   <td class="r" style="color:var(--muted)">${state.attendance.races[s.driver]?.size || 0} / ${state.attendance.quals[s.driver]?.size || 0}</td>
   <td class="r" style="color:var(--muted)">${s.best === Infinity ? '—' : 'P' + s.best}</td>
 </tr>`;
-  }
+  });
 
   html += '</tbody></table></div>'
     + paginationHtml(page, pages, `${rows.length} участников`, p => `goPage('${type}',${p})`);
@@ -94,7 +99,12 @@ ${sortTh('best', 'Лучш.')}
 }
 
 const SORT_KEYS = {
+  rank: s => s.rank,
+  driver: s => s.driver,
+  team: s => s.team,
+  mfr: s => s.mfr,
   total: s => s.total,
+  chase: s => s.total,   // отрыв от границы Чейза — та же очерёдность, что и по очкам
   wins: s => s.wins,
   starts: s => state.attendance.races[s.driver]?.size || 0,
   best: s => s.best,
@@ -157,25 +167,24 @@ function buildPivotData(type) {
 function renderPivot(type) {
   const wrap = document.getElementById(`pivot-${type}`);
   const { map, rounds, order, qualMap } = buildPivotData(type);
-  const q = state.pivot[type].toLowerCase();
-  const qt = state.pivotTeam[type].toLowerCase();
-  const teamOf = Object.fromEntries(state[type].standings.map(s => [s.driver, s.team]));
-  const drivers = order.filter(d =>
-    (!q || d.toLowerCase().includes(q)) &&
-    (!qt || (teamOf[d] || '').toLowerCase().includes(qt))
-  );
+  const q = state.pivot[type];
+  const rankOf = Object.fromEntries(order.map((d, i) => [d, i + 1]));
+  const drivers = order.filter(d => hit(q, d, teamOf(d)));
 
-  let html = `<table class="pivot-table"><thead><tr>
-<th class="driver-col">Пилот</th>
-${rounds.map(r => `<th>${roundLabel(r)}</th>`).join('')}
+  let html = `<table class="pivot-table" data-sort="auto"><thead><tr>
+<th class="driver-col">Место · Пилот</th>
+${rounds.map(r => `<th title="${roundFullName(r)}">${roundLabel(r)}</th>`).join('')}
 <th>Итого</th>
   </tr></thead><tbody>`;
 
   for (const driver of drivers) {
+    const rank = rankOf[driver];
     const dmap = map[driver] || {};
     const qmap = qualMap ? (qualMap[driver] || {}) : null;
     const total = rounds.reduce((s, r) => s + scorePts(dmap[r], r), 0);
-    html += `<tr><td class="driver-cell">${driver}${coalMark(teamOf[driver])}</td>`;
+    html += `<tr class="${rank <= 3 ? 'rank-' + rank : ''}">
+  <td class="driver-cell"><span class="pos-badge">${rank}</span> ${driver}${coalMark(teamOf(driver))}
+  <div class="team-drivers">${teamOf(driver)}</div></td>`;
     for (const r of rounds) {
       const pos = dmap[r];
       const qpos = qmap ? qmap[r] : null;
@@ -200,7 +209,75 @@ function filterPivot(type, val) {
   renderPivot(type);
 }
 
-function filterPivotTeam(type, val) {
-  state.pivotTeam[type] = val;
-  renderPivot(type);
+/* ── Отыгранные / потерянные позиции: старт (квала) − финиш (гонка) за весь сезон.
+   Клэши не в счёт: своей квалификации у них нет. Этапы без одной из двух позиций пропускаются. ── */
+function computeGains() {
+  const posByRound = rows => {
+    const m = {};
+    for (const r of rows) {
+      const d = r['Driver'], rnd = r['Round'], pos = r['Pos.'];
+      if (!d || d.includes('(i)') || rnd == null || pos == null || SPRINT_ROUNDS.has(rnd)) continue;
+      // как в карточке пилота: если строк на этап несколько, берём лучшую
+      if (m[d]?.[rnd] == null || pos < m[d][rnd]) (m[d] ||= {})[rnd] = pos;
+    }
+    return m;
+  };
+  const race = posByRound(state.races.rows);
+  const qual = posByRound(state.quals.rows);
+
+  return Object.keys(race).map(d => {
+    const cells = {};
+    let gained = 0, lost = 0;
+    for (const [rnd, rp] of Object.entries(race[d])) {
+      const qp = qual[d]?.[rnd];
+      if (qp == null) continue;
+      const diff = qp - rp;
+      cells[rnd] = { diff, qp, rp };
+      if (diff > 0) gained += diff; else lost -= diff;
+    }
+    const n = Object.keys(cells).length;
+    return { driver: d, team: teamOf(d), cells, gained, lost, net: gained - lost, n };
+  })
+    .filter(g => g.n)
+    .sort((a, b) => b.net - a.net || b.gained - a.gained)
+    .map((g, i) => ({ ...g, rank: i + 1 }));
+}
+
+const gainClass = v => v > 0 ? 'up' : v < 0 ? 'down' : '';
+const signed = v => (v > 0 ? '+' : '') + v;
+
+function renderGainPivot() {
+  const rounds = state.races.rounds.filter(r => !SPRINT_ROUNDS.has(r));
+  const list = state.gains.filter(g => hit(state.gainFilter, g.driver, g.team));
+
+  let html = `<table class="pivot-table" data-sort="auto"><thead><tr>
+<th class="driver-col">Место · Пилот</th>
+${rounds.map(r => `<th title="${roundFullName(r)}">${roundLabel(r)}</th>`).join('')}
+<th title="Сумма отыгранных позиций">Отыграно</th>
+<th title="Сумма потерянных позиций">Потеряно</th>
+<th title="Отыграно минус потеряно">Итого</th>
+<th title="В среднем за этап">Сред.</th>
+  </tr></thead><tbody>`;
+
+  for (const g of list) {
+    html += `<tr class="${g.rank <= 3 ? 'rank-' + g.rank : ''}">
+  <td class="driver-cell"><span class="pos-badge">${g.rank}</span> ${g.driver}${coalMark(g.team)}
+  <div class="team-drivers">${g.team}</div></td>`;
+    for (const r of rounds) {
+      const c = g.cells[r];
+      html += c == null
+        ? '<td><span style="color:var(--border)">—</span></td>'
+        : `<td title="${roundFullName(r)}: старт P${c.qp} → финиш P${c.rp}"><span class="${gainClass(c.diff)}">${signed(c.diff)}</span></td>`;
+    }
+    html += `<td class="up">+${g.gained}</td>
+  <td class="down">${g.lost ? '-' + g.lost : 0}</td>
+  <td class="total-cell"><span class="${gainClass(g.net)}">${signed(g.net)}</span></td>
+  <td><span class="${gainClass(g.net)}">${signed(+(g.net / g.n).toFixed(1))}</span></td></tr>`;
+  }
+  document.getElementById('pivot-gains').innerHTML = html + '</tbody></table>';
+}
+
+function filterGains(val) {
+  state.gainFilter = val;
+  renderGainPivot();
 }

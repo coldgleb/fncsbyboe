@@ -102,7 +102,7 @@ ${rounds.some(r => state.metricQuals?.has(r))
       ? '<div class="modal-note"><span class="metric-mark">(metric)</span> — квалификация по метрике: прогноза не было, меньше очков лучше</div>'
       : ''}`;
   document.getElementById('driver-modal').classList.add('open');
-  drawRankChart(state.rankHistory[driver] || {}, MFR_COLORS[base.mfr] || GRAY);
+  drawRankChart(state.rankHistory[driver] || {}, MFR_COLORS[mfrKey(base.mfr)] || GRAY);
 }
 
 // Ссылка на карточку команды — из любой таблицы
@@ -113,7 +113,7 @@ function teamLink(team) {
 
 /* Карточка команды — та же всплывашка, что у пилота */
 function openTeam(team) {
-  const t = state.teamStandings.find(x => x.team === team);
+  const t = state.teamPivot.find(x => x.team === team);
   if (!t) return;
   const rounds = state.races.rounds.filter(r => !SPRINT_ROUNDS.has(r));
   const hist = state.teamRankHistory[team] || {};
@@ -123,7 +123,7 @@ function openTeam(team) {
 
   const stat = (k, v) => `<div class="modal-stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
   const stats = [
-    stat('Место', `#${t.rank}`),
+    stat('Место', t.rank == null ? 'вне зачёта' : `#${t.rank}`),
     stat('Очки', t.total),
     stat('Пилотов', t.drivers.length),
     stat('Этапов в зачёте', scored.length),

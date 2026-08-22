@@ -9,8 +9,9 @@ function scorersTooltip(t) {
   return top.length ? 'Зачётные результаты:\n' + top.join('\n') : '';
 }
 
-function teamTableHtml(standings) {
+function teamTableHtml(standings, q) {
   const starts = (t, kind) => t.drivers.reduce((n, d) => n + (state.attendance[kind][d]?.size || 0), 0);
+  const rows = standings.filter(t => hit(q, t.team, ...t.drivers));
   let html = `<div class="table-scroll"><table class="standings-table" data-sort="auto"><thead><tr>
 <th class="r" style="width:40px">#</th>
 <th>Команда</th>
@@ -19,7 +20,7 @@ function teamTableHtml(standings) {
 <th class="r">Пилотов</th>
   </tr></thead><tbody>`;
 
-  for (const t of standings) {
+  for (const t of rows) {
     const rc = t.rank <= 3 ? `rank-${t.rank}` : '';
     html += `<tr class="${rc}">
   <td class="r"><span class="pos-badge">${t.rank}</span></td>
@@ -35,10 +36,26 @@ function teamTableHtml(standings) {
   return html + '</tbody></table></div>';
 }
 
+function renderTeams() {
+  document.getElementById('table-teams').innerHTML = teamTableHtml(state.teamStandings, state.teamFilter);
+}
+
+function renderIndTeams() {
+  document.getElementById('table-indTeams').innerHTML = teamTableHtml(state.indTeams, state.indTeamFilter);
+}
+
+function filterTeams(val) {
+  state.teamFilter = val;
+  renderTeams();
+}
+
+function filterIndTeams(val) {
+  state.indTeamFilter = val;
+  renderIndTeams();
+}
+
 function renderOwners() {
-  const q = (state.ownerFilter || '').toLowerCase();
-  const rows = state.ownerStandings.filter(o =>
-    !q || String(o.car).toLowerCase().includes(q) || o.drivers.some(d => d.toLowerCase().includes(q)));
+  const rows = state.ownerStandings.filter(o => hit(state.ownerFilter, o.car, ...o.drivers));
 
   let html = `<div class="table-scroll"><table class="standings-table" data-sort="auto"><thead><tr>
 <th class="r" style="width:40px">#</th>
@@ -80,10 +97,14 @@ function filterOwners(val) {
 /* Очки команды за каждый этап (накопительный итог — в тултипе). Сортировка — общий
    обработчик data-sort="auto": он читает отрисованный текст, годится и для этой таблицы. */
 
+// В сводных показываются все команды; у той, что вне зачёта, места нет
+const teamPlaceBadge = t => t.rank == null
+  ? '<span class="pos-badge" title="Вне командного зачёта: только гостевые пилоты">—</span>'
+  : `<span class="pos-badge">${t.rank}</span>`;
+
 function renderTeamPivot() {
   const rounds = state.races.rounds.filter(r => !SPRINT_ROUNDS.has(r));
-  const q = (state.teamPivotFilter || '').toLowerCase();
-  const teams = state.teamStandings.filter(t => !q || t.team.toLowerCase().includes(q));
+  const teams = state.teamPivot.filter(t => hit(state.teamPivotFilter, t.team, ...t.drivers));
 
   let html = `<table class="pivot-table" data-sort="auto"><thead><tr>
     <th class="driver-col">Место · Команда</th>
@@ -93,7 +114,7 @@ function renderTeamPivot() {
 
   for (const t of teams) {
     html += `<tr class="${t.rank <= 3 ? 'rank-' + t.rank : ''}">
-      <td class="driver-cell"><span class="pos-badge">${t.rank}</span> ${teamLink(t.team)}${coalMark(t.team)}</td>`;
+      <td class="driver-cell">${teamPlaceBadge(t)} ${teamLink(t.team)}${coalMark(t.team)}</td>`;
     let cum = 0;
     for (const r of rounds) {
       const got = t.roundPts[r] || 0;
@@ -113,8 +134,7 @@ function filterTeamPivot(val) {
 // Те же строки и столбцы, но в ячейке — места, которые пошли в зачёт
 function renderTeamPosPivot() {
   const rounds = state.races.rounds.filter(r => !SPRINT_ROUNDS.has(r));
-  const q = (state.teamPosFilter || '').toLowerCase();
-  const teams = state.teamStandings.filter(t => !q || t.team.toLowerCase().includes(q));
+  const teams = state.teamPivot.filter(t => hit(state.teamPosFilter, t.team, ...t.drivers));
 
   let html = `<table class="pivot-table" data-sort="auto"><thead><tr>
     <th class="driver-col">Место · Команда</th>
@@ -124,7 +144,7 @@ function renderTeamPosPivot() {
 
   for (const t of teams) {
     html += `<tr class="${t.rank <= 3 ? 'rank-' + t.rank : ''}">
-      <td class="driver-cell"><span class="pos-badge">${t.rank}</span> ${teamLink(t.team)}${coalMark(t.team)}</td>`;
+      <td class="driver-cell">${teamPlaceBadge(t)} ${teamLink(t.team)}${coalMark(t.team)}</td>`;
     for (const r of rounds) {
       const best = (t.roundBest[r] || []).filter(x => x.pos != null);
       const maxPos = state.roundMaxPos[r] || 40;
@@ -148,7 +168,7 @@ function renderTeamTab() {
   const standings = state.teamStandings;
   const rounds = state.races.rounds;
 
-  document.getElementById('table-teams').innerHTML = teamTableHtml(standings);
+  renderTeams();
 
   // Bar chart — top 10
   const top10 = standings.slice(0, 10);

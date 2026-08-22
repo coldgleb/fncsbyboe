@@ -35,10 +35,12 @@ function renderKPI(racesRows, qualsRows) {
 
   const upd = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   document.getElementById('header-meta').textContent =
-    `Сезон · ${numRaces} гонок · ${numQuals} квалификаций · ${allDrivers.size} участников · ${teams.size} команд · обновлено ${upd}`;
+    `Дивизион ${DIVISIONS[state.division].label} · ${numRaces} гонок · ${numQuals} квалификаций · `
+    + `${allDrivers.size} участников · ${teams.size} команд · обновлено ${upd}`;
 }
 
 async function init() {
+  applyDivision();
   document.getElementById('kpi-grid').innerHTML =
     '<div class="kpi-card"><div class="loading-state"><div class="spinner"></div> Загрузка…</div></div>';
   try {
@@ -58,11 +60,12 @@ async function init() {
 }
 
 async function load() {
+  const div = DIVISIONS[state.division];
   const [racesRows, qualsRows, roundRows, coalRows] = await Promise.all([
-    fetchSheet('Races'),
-    fetchSheet('Quals'),
+    fetchSheet(div.races),
+    fetchSheet(div.quals),
     fetchSheet('Round'),
-    fetchSheet('Coalitions').catch(() => []),
+    div.coalitions ? fetchSheet(div.coalitions).catch(() => []) : [],
   ]);
 
   // Лист без заголовка — берём первое значение строки
@@ -71,6 +74,9 @@ async function load() {
   state.roundAbb = Object.fromEntries(
     roundRows.filter(r => r['#'] != null && r['Abb.']).map(r => [String(r['#']), r['Abb.']])
   );
+
+  // до любых зачётов: команда пилота берётся отсюда везде, где показывается
+  state.teamOf = computeTeamOf(racesRows, qualsRows);
 
   const clashRows = qualsRows.filter(r => SPRINT_ROUNDS.has(parseFloat(r['Round'])));
   const racesRowsWithClash = [...racesRows, ...clashRows];
@@ -130,20 +136,25 @@ async function load() {
       (state.teamRankHistory[t.team] ||= {})[rnd] = t.rank;
   }
 
-  state.golub = {
+  if (div.golub) state.golub = {
     races: computeGolub(racesRows),
     // квала по метрике — не прогноз, а замер: сравнивать по ней позиции нечестно
     quals: computeGolub(qualsRows.filter(r => !state.metricQuals.has(r['Round']))),
   };
+  state.gains = computeGains();
   state.teamStandings = computeTeamStandings(racesRowsWithClash);
+  // сводным нужны все команды, включая те, за которые ездили одни гости
+  state.teamPivot = computeTeamStandings(racesRowsWithClash, true);
   state.ownerStandings = computeOwnerStandings(racesRowsWithClash);
 
   // Зачёты независимых команд (вне коалиций), места пересчитываются
-  const rerank = arr => arr.map((x, i) => ({ ...x, rank: i + 1 }));
-  const indep = team => team && team !== '—' && !state.coalitions.has(team);
-  state.indRaces.standings = rerank(state.races.standings.filter(s => indep(s.team)));
-  state.indQuals.standings = rerank(state.quals.standings.filter(s => indep(s.team)));
-  state.indTeams = rerank(state.teamStandings.filter(t => indep(t.team)));
+  if (div.coalitions) {
+    const rerank = arr => arr.map((x, i) => ({ ...x, rank: i + 1 }));
+    const indep = team => team && team !== '—' && !state.coalitions.has(team);
+    state.indRaces.standings = rerank(state.races.standings.filter(s => indep(s.team)));
+    state.indQuals.standings = rerank(state.quals.standings.filter(s => indep(s.team)));
+    state.indTeams = rerank(state.teamStandings.filter(t => indep(t.team)));
+  }
 
   renderKPI(racesRows, qualsRows);
 
@@ -153,15 +164,20 @@ async function load() {
   renderPivot('quals');
   renderTeamTab();
   renderOwners();
-  renderTable('indRaces');
-  renderTable('indQuals');
-  document.getElementById('table-indTeams').innerHTML = teamTableHtml(state.indTeams);
+  if (div.coalitions) {
+    renderTable('indRaces');
+    renderTable('indQuals');
+    renderIndTeams();
+  }
 
   initCharts('races');
   initCharts('quals');
   initRoundView(roundRows);   // до сводных таблиц: оттуда берутся названия этапов
-  renderGolub('races');
-  renderGolub('quals');
+  if (div.golub) {
+    renderGolub('races');
+    renderGolub('quals');
+  }
+  renderGainPivot();
   renderTeamPivot();
   renderTeamPosPivot();
   applyHash();

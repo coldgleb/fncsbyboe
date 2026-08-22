@@ -17,7 +17,11 @@
       <h1>NASCAR FANTASY CHAMPIONSHIP</h1>
       <small id="header-meta">Загрузка данных…</small>
     </div>
-    <button class="page-btn" style="margin-left:auto" onclick="init()" title="Перезагрузить данные">⟳ Обновить</button>
+    <div class="round-toggle" style="margin-left:auto" title="Дивизион">
+      <button class="rtog-btn div-btn" data-div="open" onclick="switchDivision('open')">Open</button>
+      <button class="rtog-btn div-btn" data-div="star" onclick="switchDivision('star')">Star</button>
+    </div>
+    <button class="page-btn" onclick="init()" title="Перезагрузить данные">⟳ Обновить</button>
   </header>
 
   <main>
@@ -77,10 +81,8 @@
         <h3>Развёрнутая таблица — Пилот · Этап · Позиция</h3>
         <div class="pivot-body" id="pivot-body-races">
           <div class="pivot-controls">
-            <input class="pivot-search" type="search" placeholder="Поиск пилота…"
+            <input class="pivot-search" type="search" placeholder="Поиск по пилоту / команде…"
               oninput="filterPivot('races', this.value)">
-            <input class="pivot-search" type="search" placeholder="Поиск команды…"
-              oninput="filterPivotTeam('races', this.value)">
             <div class="pivot-legend">
               <div class="legend-item">
                 <div class="legend-dot pos-p1"></div> P1
@@ -103,6 +105,17 @@
             </div>
           </div>
           <div class="pivot-scroll" id="pivot-races"></div>
+        </div>
+      </div>
+      <div class="pivot-card">
+        <h3 title="Позиция в квалификации минус позиция в гонке. Плюс — отыграл, минус — потерял. Клэши не учитываются">
+          Отыгранные / потерянные позиции за сезон</h3>
+        <div class="pivot-body">
+          <div class="pivot-controls">
+            <input class="pivot-search" type="search" placeholder="Поиск по пилоту / команде…"
+              oninput="filterGains(this.value)">
+          </div>
+          <div class="pivot-scroll" id="pivot-gains"></div>
         </div>
       </div>
     </div>
@@ -146,10 +159,8 @@
         <h3>Развёрнутая таблица — Пилот · Этап · Позиция</h3>
         <div class="pivot-body" id="pivot-body-quals">
           <div class="pivot-controls">
-            <input class="pivot-search" type="search" placeholder="Поиск пилота…"
+            <input class="pivot-search" type="search" placeholder="Поиск по пилоту / команде…"
               oninput="filterPivot('quals', this.value)">
-            <input class="pivot-search" type="search" placeholder="Поиск команды…"
-              oninput="filterPivotTeam('quals', this.value)">
             <div class="pivot-legend">
               <div class="legend-item">
                 <div class="legend-dot pos-p1"></div> P1
@@ -189,6 +200,8 @@
       <div class="table-card">
         <div class="table-header">
           <h3>Командный зачёт — 2 лучших результата за этап</h3>
+          <input class="search-input" type="search" placeholder="Поиск по пилоту / команде…"
+            oninput="filterTeams(this.value)">
         </div>
         <div id="table-teams"></div>
       </div>
@@ -231,6 +244,8 @@
       <div class="table-card">
         <div class="table-header">
           <h3>Зачёт независимых команд</h3>
+          <input class="search-input" type="search" placeholder="Поиск по пилоту / команде…"
+            oninput="filterIndTeams(this.value)">
         </div>
         <div id="table-indTeams"></div>
       </div>
@@ -266,10 +281,8 @@
         <h3>Гонки — участников между ним и тобой</h3>
         <div class="pivot-body">
           <div class="pivot-controls">
-            <input class="pivot-search" type="search" placeholder="Поиск пилота…"
+            <input class="pivot-search" type="search" placeholder="Поиск по пилоту / команде…"
               oninput="filterGolub('races', this.value)">
-            <input class="pivot-search" type="search" placeholder="Поиск команды…"
-              oninput="filterGolubTeam('races', this.value)">
           </div>
           <div class="pivot-scroll" id="golub-races"></div>
         </div>
@@ -278,10 +291,8 @@
         <h3 title="Квалификации по метрике не учитываются">Квалификации — участников между ним и тобой</h3>
         <div class="pivot-body">
           <div class="pivot-controls">
-            <input class="pivot-search" type="search" placeholder="Поиск пилота…"
+            <input class="pivot-search" type="search" placeholder="Поиск по пилоту / команде…"
               oninput="filterGolub('quals', this.value)">
-            <input class="pivot-search" type="search" placeholder="Поиск команды…"
-              oninput="filterGolubTeam('quals', this.value)">
           </div>
           <div class="pivot-scroll" id="golub-quals"></div>
         </div>
@@ -297,6 +308,8 @@
       <div class="table-card">
         <div class="table-header">
           <h3 id="round-table-title">Гонка</h3>
+          <input class="search-input" type="search" placeholder="Поиск по пилоту / команде…"
+            oninput="filterRound(this.value)">
         </div>
         <div id="round-table"></div>
       </div>

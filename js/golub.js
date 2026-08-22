@@ -26,7 +26,7 @@ function computeGolub(rows) {
     for (const r of field) {
       const d = r['Driver'], pos = r['Pos.'];
       if (!d || isGolub(d) || d.includes('(i)')) continue;
-      const g = map[d] ||= { driver: d, team: r['Team'] || '—', total: 0, cells: {} };
+      const g = map[d] ||= { driver: d, team: teamOf(d), total: 0, cells: {} };
       // считаем участников, а не разницу позиций: в протоколе бывают пропуски в нумерации
       const pts = pos <= gp ? 0
         : field.reduce((n, x) => n + (x['Pos.'] > gp && x['Pos.'] <= pos ? 1 : 0), 0);
@@ -51,13 +51,9 @@ function golubClass(pts) {
 
 function renderGolub(type) {
   const { rounds, info, drivers } = state.golub[type];
-  const q = state.golubFilter[type].toLowerCase();
-  const qt = state.golubTeam[type].toLowerCase();
-  const list = drivers.filter(g =>
-    (!q || g.driver.toLowerCase().includes(q)) &&
-    (!qt || g.team.toLowerCase().includes(qt)));
+  const list = drivers.filter(g => hit(state.golubFilter[type], g.driver, g.team));
 
-  let html = `<table class="pivot-table"><thead><tr>
+  let html = `<table class="pivot-table" data-sort="auto"><thead><tr>
 <th class="driver-col">Место · Пилот</th>
 ${rounds.map(r => `<th title="${roundFullName(r)} · ${GOLUB} P${info[r].gp} из ${info[r].n} участников">${roundLabel(r)}<span class="pivot-qpos">P${info[r].gp}/${info[r].n}</span></th>`).join('')}
 <th>Итого</th>
@@ -87,10 +83,5 @@ function setGolubView(type) {
 
 function filterGolub(type, val) {
   state.golubFilter[type] = val;
-  renderGolub(type);
-}
-
-function filterGolubTeam(type, val) {
-  state.golubTeam[type] = val;
   renderGolub(type);
 }

@@ -38,13 +38,33 @@ function standingsCmp(a, b) {
   return a.firstWin - b.firstWin;
 }
 
+/* Команда пилота — по последней гонке, в которой он участвовал (в протоколе одного сезона
+   пилот может сменить команду). Гонок не было вовсе — берём последнюю квалификацию. */
+function computeTeamOf(raceRows, qualRows) {
+  const latest = rows => {
+    const m = {};
+    for (const r of rows) {
+      const d = r['Driver'], rnd = r['Round'], team = r['Team'];
+      if (!d || !team || team === '—' || rnd == null) continue;
+      if (!(m[d]?.rnd > rnd)) m[d] = { rnd, team };
+    }
+    return m;
+  };
+  const race = latest(raceRows), qual = latest(qualRows);
+  return Object.fromEntries(
+    [...new Set([...Object.keys(qual), ...Object.keys(race)])]
+      .map(d => [d, (race[d] || qual[d]).team]));
+}
+
+const teamOf = driver => state.teamOf?.[driver] || '—';
+
 function computeStandings(rows) {
   const map = {};
   for (const r of rows) {
     const d = r['Driver'];
     if (!d || d.includes('(i)')) continue;
     if (!map[d]) map[d] = {
-      driver: d, team: r['Team'] || '—', car: r['#'] || '—', mfr: r['M.'] || '',
+      driver: d, team: teamOf(d), car: r['#'] || '—', mfr: r['M.'] || '',
       total: 0, sheetPts: 0, best: Infinity,
       wins: 0, firstWin: Infinity, posCounts: {}, roundPts: {},
       posSum: 0, finishes: 0, top5: 0, top10: 0, positions: []
@@ -81,8 +101,10 @@ function uniqueRounds(rows) {
   return [...new Set(rows.map(r => r['Round']).filter(x => x != null))].sort((a, b) => a - b);
 }
 
-/* ── Командный зачёт: сумма очков двух лучших представителей команды за этап (п. 9.7) ── */
-function computeTeamStandings(rows) {
+/* ── Командный зачёт: сумма очков двух лучших представителей команды за этап (п. 9.7).
+   withGuestOnly — вернуть и команды из одних гостей: в зачёте их нет (место = null),
+   но в сводных по этапам они показываются. ── */
+function computeTeamStandings(rows, withGuestOnly = false) {
   const teamMap = {};
   for (const r of rows) {
     const team = r['Team'];
@@ -101,7 +123,7 @@ function computeTeamStandings(rows) {
     if (r['Pos.'] != null && !SPRINT_ROUNDS.has(rnd)) teamMap[team].positions.push(r['Pos.']);
   }
 
-  return Object.values(teamMap).map(t => {
+  const all = Object.values(teamMap).map(t => {
     let total = 0;
     const roundPts = {};
     const roundBest = {};  // этап → зачётные результаты (кто, какое место, сколько очков)
@@ -120,9 +142,16 @@ function computeTeamStandings(rows) {
     }
     return {
       team: t.team, total, roundPts, roundBest, scorers, drivers: [...t.drivers],
+      // команда, за которую ездят одни гости, в командном зачёте не участвует
+      entered: [...t.drivers].some(d => !d.includes('(i)')),
       bestPositions: t.positions.sort((a, b) => a - b)
     };
-  }).sort((a, b) => b.total - a.total).map((t, i) => ({ ...t, rank: i + 1 }));
+  }).sort((a, b) => b.total - a.total);
+
+  // Места нумеруются только среди зачётных; у команды из одних гостей места нет
+  let place = 0;
+  return all.map(t => ({ ...t, rank: t.entered ? ++place : null }))
+    .filter(t => withGuestOnly || t.entered);
 }
 
 function computeOwnerStandings(rows) {
