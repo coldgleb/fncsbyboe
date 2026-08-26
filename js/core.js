@@ -75,8 +75,23 @@ function roundLabel(n) {
   return n % 1 === 0 ? abb : `${abb} C${Math.round((n % 1) * 10)}`;
 }
 
+/* Дисквалификация. В листе стоит «DQ», но gviz не отдаёт текст из числового столбца —
+   приходит пустое место. Значит DQ — это «строка на этап есть, а места нет»; «не участвовал»
+   отличается тем, что строки нет вовсе. Этап в зачёт не идёт (0 очков, вне статистики),
+   но в протоколе пилот показывается там, где был бы по очкам за прогноз. */
+const DQ_MARK = '<span class="dq-mark" title="Дисквалификация: этап не в зачёт">DQ</span>';
+
 function coalMark(team) {
   return state.coalitions?.has(team) ? ' <span class="coal-mark" title="В коалиции">🤝</span>' : '';
+}
+
+/* Штраф с листа Deductions: из очков он уже вычтен, метка идёт перед ними и показывает,
+   сколько сняли; подсказка — причина из столбца Reason, пустой Reason оставляет метку без неё.
+   Причина пишется руками, поэтому кавычки экранируем — иначе они рвут сам атрибут title. */
+function penMark(t) {
+  if (!t.penalty) return '';
+  const why = (t.penaltyReason || '').replace(/"/g, '&quot;');
+  return `<span class="pen-mark"${why ? ` title="${why}"` : ''}>−${t.penalty}</span> `;
 }
 
 /* Производителя в листах пишут по-разному (Chevrolet, Chevy, Chv) — цвет бейджа
@@ -110,8 +125,10 @@ function cellValue(td) {
     const n = parseFloat(td.dataset.rank);
     return isFinite(n) ? n : null;              // «—» вместо места — вниз, как пустые
   }
-  const t = (td?.textContent || '').trim();
-  if (!t || t === '—' || t === '•') return null;                // пусто — особый случай
+  // метка штрафа стоит перед очками — сортировать надо по самим очкам, а не по «−100 494»
+  const skip = td?.querySelector('.pen-mark')?.textContent ?? '';
+  const t = (td?.textContent || '').slice(skip.length).trim();
+  if (!t || t === '—' || t === '•' || t === 'DQ') return null;  // пусто и DQ — вниз
   const m = t.match(/^([▲▼])?\s*[P#+]?\s*(-?\d+(?:[.,]\d+)?)/);
   if (!m) return t.toLowerCase();
   const n = parseFloat(m[2].replace(',', '.'));

@@ -573,6 +573,34 @@ main {
   font-size: 0.7rem;
 }
 
+/* Штраф с листа Deductions */
+.pen-mark {
+  display: inline-block;
+  margin-right: 4px;
+  color: #e0606a;
+  font-weight: 700;
+  font-size: 0.68rem;
+}
+
+/* курсор-подсказка только когда причина с листа действительно есть */
+.pen-mark[title] {
+  cursor: help;
+}
+
+/* Дисквалификация: этап не в зачёт */
+.dq-mark {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 4px;
+  cursor: help;
+  background: #e6394618;
+  color: #e0606a;
+  border: 1px solid #e6394645;
+  font-weight: 700;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+}
+
 /* Team standings */
 .team-drivers {
   font-size: 0.72rem;

@@ -119,7 +119,7 @@ function renderRoundStandings(kind, roundNum) {
     body = computeTeamStandings(rowsNow).filter(t => roundHit(t.team, ...t.drivers))
       .map(t => [t.rank, deltaCell(prevPos[t.team], t.rank),
     `<td><strong>${teamLink(t.team)}</strong>${coalMark(t.team)}</td>
-   <td class="r" title="${scorersTooltip(t)}"><strong>${t.total}</strong></td>
+   <td class="r" title="${scorersTooltip(t)}">${penMark(t)}<strong>${t.total}</strong></td>
    <td class="r" style="color:var(--muted)">${t.bestPositions.slice(0, 10).join(' · ') || '—'}</td>`]);
   } else if (kind === 'st-owners') {
     const prevPos = Object.fromEntries(computeOwnerStandings(rowsPrev).map(o => [o.car, o.rank]));
@@ -178,17 +178,24 @@ function onRoundChange() {
 
   const clashNum = roundView === 'clash1' ? 1.1 : roundView === 'clash2' ? 1.2 : null;
 
-  const raceRows = state.races.rows
-    .filter(r => parseFloat(r['Round']) === roundNum)
-    .sort((a, b) => (a['Pos.'] || 999) - (b['Pos.'] || 999));
+  /* Места по возрастанию; дисквалифицированному (места нет) место в протоколе не положено,
+     но показать его надо там, где он был бы по очкам за прогноз: ставим прямо перед лучшим
+     из тех, кого он обошёл. Считать «скольких обошёл» нельзя — после DQ в поле остаётся дыра
+     (его место никому не отдают), и счёт разъезжается с номерами мест. Никого не обошёл —
+     в конец. В квале по метрике очки наоборот: меньше — лучше. */
+  const orderField = rows => {
+    const metric = rows.every(r => DR_KEYS.every(k => r[k] == null));
+    const beats = (a, b) => metric ? (a ?? Infinity) < (b ?? Infinity) : (a ?? -Infinity) > (b ?? -Infinity);
+    const key = r => r['Pos.'] ?? Math.min(999, ...rows
+      .filter(x => x['Pos.'] != null && beats(r['Points'], x['Points']))
+      .map(x => x['Pos.'])) - 0.5;
+    return rows.map(r => [key(r), r]).sort((a, b) => a[0] - b[0]).map(([, r]) => r);
+  };
+  const ofRound = (rows, n) => orderField(rows.filter(r => parseFloat(r['Round']) === n));
 
-  const clashRows = clashNum != null
-    ? state.quals.rows.filter(r => parseFloat(r['Round']) === clashNum).sort((a, b) => (a['Pos.'] || 999) - (b['Pos.'] || 999))
-    : [];
-
-  const qualRows = state.quals.rows
-    .filter(r => parseFloat(r['Round']) === roundNum)
-    .sort((a, b) => (a['Pos.'] || 999) - (b['Pos.'] || 999));
+  const raceRows = ofRound(state.races.rows, roundNum);
+  const clashRows = clashNum != null ? ofRound(state.quals.rows, clashNum) : [];
+  const qualRows = ofRound(state.quals.rows, roundNum);
 
   const hitRow = r => roundHit(r['Driver'], r['Team'], r['#']);
   const raceDrEmpty = raceRows.every(r => DR_KEYS.every(k => r[k] == null));
@@ -197,7 +204,7 @@ function onRoundChange() {
 
   const maxRacePos = raceRows.reduce((mx, r) => r['Pos.'] != null ? Math.max(mx, r['Pos.']) : mx, 0) || 40;
   const qualPosFmt = v => {
-    if (v == null) return '—';
+    if (v == null) return DQ_MARK;
     const green = v >= 1 && v <= maxRacePos;
     return `<span style="color:${green ? '#2ecc71' : '#e63946'};font-weight:700">${v}</span>`;
   };
@@ -209,7 +216,7 @@ function onRoundChange() {
   if (roundView === 'race') {
     document.getElementById('round-table-title').textContent = `Гонка — ${name}`;
     const raceCols = [
-      { key: 'Pos.', label: 'Поз.', cls: 'r', fmt: v => v == null ? '—' : v, minKey: 'Pos.' },
+      { key: 'Pos.', label: 'Поз.', cls: 'r', fmt: v => v == null ? DQ_MARK : v, minKey: 'Pos.' },
       {
         key: 'Driver', label: '±', cls: 'r', fmt: (v, r) => {
           const qp = driverQualPos[r['Driver']];
@@ -242,7 +249,7 @@ function onRoundChange() {
     document.getElementById('round-table-title').textContent = `${clashLabel} — ${name}`;
     const clashHalf = Math.ceil(raceRows.length / 2);
     const clashPosFmt = v => {
-      if (v == null) return '—';
+      if (v == null) return DQ_MARK;
       const green = v >= 1 && v <= clashHalf;
       return `<span style="color:${green ? '#2ecc71' : '#e63946'};font-weight:700">${v}</span>`;
     };

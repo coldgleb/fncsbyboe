@@ -12,8 +12,10 @@ function openDriver(driver) {
     for (const r of rows) {
       if (r['Driver'] !== driver) continue;
       const rnd = r['Round'], pos = r['Pos.'];
-      if (rnd == null || pos == null) continue;
-      if (m[rnd] == null || pos < m[rnd]['Pos.']) m[rnd] = r;
+      if (rnd == null) continue;
+      // строка без места — DQ: этап всё равно показываем, но реальное место её перебивает
+      const cur = m[rnd];
+      if (!cur || (pos != null && (cur['Pos.'] == null || pos < cur['Pos.']))) m[rnd] = r;
     }
     return m;
   };
@@ -63,9 +65,9 @@ function openDriver(driver) {
       ? '<span class="metric-mark" title="Квалификация по метрике: без прогноза, меньше — лучше">(metric)</span> ' : '';
     return `<tr>
   <td><span class="driver-link" title="Открыть результаты этапа" onclick="goToRound(${r})">${roundFullName(r)}</span></td>
-  <td class="r">${qp ?? '—'}</td>
+  <td class="r">${qp ?? (qualRow[r] ? DQ_MARK : '—')}</td>
   <td class="r" style="color:var(--muted)">${metric}${qualRow[r]?.['Points'] ?? '—'}</td>
-  <td class="r">${rp ?? '—'}</td>
+  <td class="r">${rp ?? (raceRow[r] ? DQ_MARK : '—')}</td>
   ${fc(raceRow[r]?.['Points'])}
   <td class="r">${diffCell}</td>
   <td class="r">${roundPts(r)}</td>
@@ -124,7 +126,7 @@ function openTeam(team) {
   const stat = (k, v) => `<div class="modal-stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
   const stats = [
     stat('Место', t.rank == null ? 'вне зачёта' : `#${t.rank}`),
-    stat('Очки', t.total),
+    stat('Очки', `${penMark(t)}${t.total}`),
     stat('Пилотов', t.drivers.length),
     stat('Этапов в зачёте', scored.length),
     stat('Лучший финиш', best != null ? 'P' + best : '—'),
@@ -138,7 +140,7 @@ function openTeam(team) {
     return 1 + state.teamStandings.filter(x => (x.roundPts[r] ?? -1) > mine).length;
   };
 
-  let cum = 0;
+  let cum = -t.penalty;   // штраф сезонный: накопительный итог сходится с зачётом
   const body = rounds.map(r => {
     const bestOfRound = t.roundBest[r] || [];
     const got = t.roundPts[r] || 0;

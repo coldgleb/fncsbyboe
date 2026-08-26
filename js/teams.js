@@ -28,7 +28,7 @@ function teamTableHtml(standings, q) {
     <strong>${teamLink(t.team)}</strong>${coalMark(t.team)}
     <div class="team-drivers">${t.drivers.sort().join(' · ')}</div>
   </td>
-  <td class="r" title="${scorersTooltip(t)}"><strong>${t.total}</strong></td>
+  <td class="r" title="${scorersTooltip(t)}">${penMark(t)}<strong>${t.total}</strong></td>
   <td class="r" style="color:var(--muted)">${starts(t, 'races')} / ${starts(t, 'quals')}</td>
   <td class="r" style="color:var(--muted)">${t.drivers.length}</td>
 </tr>`;
@@ -115,13 +115,13 @@ function renderTeamPivot() {
   for (const t of teams) {
     html += `<tr class="${t.rank <= 3 ? 'rank-' + t.rank : ''}">
       <td class="driver-cell">${teamPlaceBadge(t)} ${teamLink(t.team)}${coalMark(t.team)}</td>`;
-    let cum = 0;
+    let cum = -t.penalty;   // штраф — сезонный, накопительный итог ведём от него
     for (const r of rounds) {
       const got = t.roundPts[r] || 0;
       cum += got;
       html += `<td title="${roundFullName(r)}: ${got} очк. · всего ${cum}">${got || '<span style="color:var(--border)">—</span>'}</td>`;
     }
-    html += `<td class="total-cell">${t.total}</td></tr>`;
+    html += `<td class="total-cell">${penMark(t)}${t.total}</td></tr>`;
   }
   document.getElementById('pivot-teams').innerHTML = html + '</tbody></table>';
 }
@@ -154,7 +154,7 @@ function renderTeamPosPivot() {
           + '</td>'
         : '<td><span class="pos-cell pos-none">—</span></td>';
     }
-    html += `<td class="total-cell">${t.total}</td></tr>`;
+    html += `<td class="total-cell">${penMark(t)}${t.total}</td></tr>`;
   }
   document.getElementById('pivot-teams-pos').innerHTML = html + '</tbody></table>';
 }
@@ -191,7 +191,7 @@ function renderTeamTab() {
   const lineId = 'chart-teams-line';
   if (state.charts[lineId]) state.charts[lineId].destroy();
   const datasets = standings.slice(0, 5).map((t, i) => {
-    let cum = 0;
+    let cum = -t.penalty;   // чтобы кривая закончилась на очках из зачёта, а не выше на штраф
     return {
       label: t.team,
       borderColor: COLORS[i], backgroundColor: COLORS[i] + '20',

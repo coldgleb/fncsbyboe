@@ -140,8 +140,12 @@ function computeTeamStandings(rows, withGuestOnly = false) {
         sc.pts += pts;
       }
     }
+    // Штраф с листа Deductions уже сидит в total — по нему и место, и всё, что показывается
+    const ded = state.deductions?.[t.team];
+    const penalty = ded?.pts || 0;
     return {
-      team: t.team, total, roundPts, roundBest, scorers, drivers: [...t.drivers],
+      team: t.team, total: total - penalty, penalty, penaltyReason: ded?.reason || '',
+      roundPts, roundBest, scorers, drivers: [...t.drivers],
       // команда, за которую ездят одни гости, в командном зачёте не участвует
       entered: [...t.drivers].some(d => !d.includes('(i)')),
       bestPositions: t.positions.sort((a, b) => a - b)

@@ -61,15 +61,24 @@ async function init() {
 
 async function load() {
   const div = DIVISIONS[state.division];
-  const [racesRows, qualsRows, roundRows, coalRows] = await Promise.all([
+  const [racesRows, qualsRows, roundRows, coalRows, dedRows] = await Promise.all([
     fetchSheet(div.races),
     fetchSheet(div.quals),
     fetchSheet('Round'),
     div.coalitions ? fetchSheet(div.coalitions).catch(() => []) : [],
+    fetchSheet('Deductions').catch(() => []),
   ]);
 
   // Лист без заголовка — берём первое значение строки
   state.coalitions = new Set(coalRows.map(r => Object.values(r)[0]).filter(Boolean));
+
+  /* Штрафы команд в очках. Лист Deductions общий на оба дивизиона (как Round) и без столбца
+     этапа, поэтому штраф считается сезонным: вычитается из командного зачёта на любой момент,
+     в том числе в зачётах «после этапа» и в истории мест. До computeTeamStandings — она читает
+     state.deductions. Пустого листа хватает, чтобы штрафов просто не было. */
+  state.deductions = Object.fromEntries(
+    dedRows.filter(r => r['Team'] && r['Points'] != null)
+      .map(r => [r['Team'], { pts: r['Points'], reason: r['Reason'] || '' }]));
 
   state.roundAbb = Object.fromEntries(
     roundRows.filter(r => r['#'] != null && r['Abb.']).map(r => [String(r['#']), r['Abb.']])

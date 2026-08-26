@@ -27,9 +27,13 @@ function renderTable(type) {
   const gapCell = s => {
     const dash = '<span style="color:var(--muted)">—</span>';
     if (!qualEligible(s.driver)) return dash;
-    if (playoffSet.has(s.driver))
-      return cutoffDriver ? `<span style="color:#2ecc71;font-weight:700">+${s.total - cutoffDriver.total}</span>` : dash;
-    return lastChase ? `<span style="color:#e63946;font-weight:700">${s.total - lastChase.total}</span>` : dash;
+    // в Чейзе считаем от первого вне, вне Чейза — от последнего в нём
+    const ref = playoffSet.has(s.driver) ? cutoffDriver : lastChase;
+    if (!ref) return dash;
+    const d = s.total - ref.total;
+    // на отсечке очки могут совпасть: ни преимущества, ни отставания — решает тай-брейк
+    if (d === 0) return '<span style="color:var(--muted)" title="Равенство очков на отсечке — решает тай-брейк">0</span>';
+    return `<span style="color:${d > 0 ? '#2ecc71' : '#e63946'};font-weight:700">${d > 0 ? '+' : ''}${d}</span>`;
   };
 
   const sort = state.sort[type];
@@ -136,29 +140,24 @@ function buildPivotData(type) {
   const rounds = state[type].rounds;
   const standings = state[type].standings;
 
-  const map = {};
-  for (const r of rows) {
-    const d = r['Driver'];
-    const rnd = r['Round'];
-    const pos = r['Pos.'];
-    if (!d || rnd == null || pos == null) continue;
-    if (!map[d]) map[d] = {};
-    if (map[d][rnd] == null || pos < map[d][rnd]) map[d][rnd] = pos;
-  }
-
-  // For races pivot: build qual map (round → driver → qual pos)
-  let qualMap = null;
-  if (type === 'races') {
-    qualMap = {};
-    for (const r of state.quals.rows) {
-      const d = r['Driver'];
-      const rnd = r['Round'];
-      const pos = r['Pos.'];
-      if (!d || rnd == null || pos == null) continue;
-      if (!qualMap[d]) qualMap[d] = {};
-      if (qualMap[d][rnd] == null || pos < qualMap[d][rnd]) qualMap[d][rnd] = pos;
+  /* Ключ этапа заводится и без места: null здесь — это DQ (строка есть, места нет),
+     отсутствие ключа — «не участвовал». Реальное место всегда перебивает null. */
+  const posMap = src => {
+    const m = {};
+    for (const r of src) {
+      const d = r['Driver'], rnd = r['Round'], pos = r['Pos.'];
+      if (!d || rnd == null) continue;
+      m[d] ||= {};
+      const cur = m[d][rnd];
+      if (pos != null && (cur == null || pos < cur)) m[d][rnd] = pos;
+      else if (cur === undefined) m[d][rnd] = null;
     }
-  }
+    return m;
+  };
+
+  const map = posMap(rows);
+  // For races pivot: build qual map (round → driver → qual pos)
+  const qualMap = type === 'races' ? posMap(state.quals.rows) : null;
 
   const order = standings.map(s => s.driver);
   return { map, rounds, order, qualMap };
@@ -189,12 +188,13 @@ ${rounds.map(r => `<th title="${roundFullName(r)}">${roundLabel(r)}</th>`).join(
       const pos = dmap[r];
       const qpos = qmap ? qmap[r] : null;
       const maxPos = state.roundMaxPos[r] || 40;
-      const raceCell = pos == null
-        ? `<span class="pos-cell pos-none">—</span>`
-        : `<span class="pos-cell ${posClass(pos, maxPos)}">${pos}</span>`;
-      const qualCell = qmap == null ? '' : qpos == null
-        ? `<span class="pivot-qpos pos-none">—</span>`
-        : `<span class="pivot-qpos" style="color:${qpos <= maxPos ? '#2ecc71' : '#e63946'}">${qpos}</span>`;
+      // ключ есть, а места нет — дисквалификация; ключа нет — этап пропущен
+      const raceCell = pos != null
+        ? `<span class="pos-cell ${posClass(pos, maxPos)}">${pos}</span>`
+        : r in dmap ? DQ_MARK : `<span class="pos-cell pos-none">—</span>`;
+      const qualCell = qmap == null ? '' : qpos != null
+        ? `<span class="pivot-qpos" style="color:${qpos <= maxPos ? '#2ecc71' : '#e63946'}">${qpos}</span>`
+        : r in qmap ? DQ_MARK : `<span class="pivot-qpos pos-none">—</span>`;
       html += `<td>${raceCell}${qualCell}</td>`;
     }
     html += `<td class="total-cell">${total}</td></tr>`;
