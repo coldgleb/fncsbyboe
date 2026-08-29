@@ -80,6 +80,11 @@ async function load() {
     dedRows.filter(r => r['Team'] && r['Points'] != null)
       .map(r => [r['Team'], { pts: r['Points'], reason: r['Reason'] || '' }]));
 
+  // названия этапов нужны раньше вкладки «По этапам» — их показывает селектор среза зачёта
+  state.roundNames = Object.fromEntries(
+    roundRows.filter(r => r['#'] != null)
+      .map(r => [String(r['#']), `${fmtRoundNum(r['#'])} · ${r['Name'] || ''}`]));
+
   state.roundAbb = Object.fromEntries(
     roundRows.filter(r => r['#'] != null && r['Abb.']).map(r => [String(r['#']), r['Abb.']])
   );
@@ -143,6 +148,13 @@ async function load() {
       (state.rankHistory[s.driver] ||= {})[rnd] = s.rank;
     for (const t of computeTeamStandings(upTo))
       (state.teamRankHistory[t.team] ||= {})[rnd] = t.rank;
+  }
+
+  // То же для зачёта квалификаций — график в карточке пилота в режиме «только квалы»
+  state.qualRankHistory = {};
+  for (const rnd of state.quals.rounds) {
+    for (const s of computeStandings(qualsRows.filter(r => r['Round'] <= rnd)))
+      (state.qualRankHistory[s.driver] ||= {})[rnd] = s.rank;
   }
 
   if (div.golub) state.golub = {

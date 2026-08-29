@@ -8,16 +8,53 @@ function driverTooltip(s) {
   ].join('\n');
 }
 
+/* ── Срез зачёта после выбранного этапа ── */
+
+// Этапы, доступные для среза; клэши — часть первого этапа, отдельной строкой не нужны
+const roundsOf = type => (/quals/i.test(type) ? state.quals : state.races).rounds
+  .filter(r => !SPRINT_ROUNDS.has(r));
+
+const isIndep = team => team && team !== '—' && !state.coalitions?.has(team);
+
+// Зачёт по состоянию после этапа n (клэши относятся к своему этапу — граница до следующего целого)
+function standingsUpTo(type, n) {
+  const rows = (/quals/i.test(type) ? state.quals.rows : state.races.rowsWithClash)
+    .filter(r => r['Round'] < n + 1);
+  const st = computeStandings(rows);
+  return type.startsWith('ind')
+    ? st.filter(s => isIndep(s.team)).map((x, i) => ({ ...x, rank: i + 1 }))
+    : st;
+}
+
+function setUpTo(type, val) {
+  const rounds = roundsOf(type);
+  const n = parseFloat(val);
+  state.upTo[type] = n === rounds[rounds.length - 1] ? null : n;
+  state.page[type] = 1;
+  renderTable(type);
+}
+
 function renderTable(type) {
   const wrap = document.getElementById(`table-${type}`);
-  const all = state[type].standings;
+  const rounds = roundsOf(type);
+  const lastRound = rounds[rounds.length - 1];
+  const at = state.upTo[type] ?? lastRound;
+  const isLast = at === lastRound;
+  const all = isLast ? state[type].standings : standingsUpTo(type, at);
+  // ± к прошлому этапу
+  const prevRound = Math.max(...rounds.filter(r => r < at), 0);
+  const prevRank = prevRound
+    ? Object.fromEntries(standingsUpTo(type, prevRound).map(s => [s.driver, s.rank]))
+    : {};
+  // участие считаем до выбранного этапа, иначе срез врёт про пропуски
+  const starts = (kind, d) => [...(state.attendance[kind][d] || [])].filter(r => r <= at).length;
   const q = state.filter[type].toLowerCase();
   const filtered = q
     ? all.filter(s => s.driver.toLowerCase().includes(q) || s.team.toLowerCase().includes(q))
     : all;
 
-  // Чейз считается только в общих зачётах, не в зачёте независимых
-  const withChase = !type.startsWith('ind');
+  // Чейз считается только в общих зачётах, не в зачёте независимых, и только по свежему зачёту
+  const withChase = !type.startsWith('ind') && isLast;
   const playoffSet = withChase ? buildPlayoffSet(type) : new Set();
   // первый претендент вне Чейза (граница отсечки) и последний из Чейза
   const cutoffDriver = withChase ? all.find(s => !playoffSet.has(s.driver) && qualEligible(s.driver)) : null;
@@ -56,8 +93,17 @@ function renderTable(type) {
   const pages = Math.ceil(rows.length / PAGE_SIZE);
   const slice = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  let html = `<div class="table-scroll"><table class="standings-table"><thead><tr>
+  let html = `<div class="table-upto">
+  <label>Зачёт после этапа:
+    <select class="chart-select" onchange="setUpTo('${type}', this.value)">
+      ${rounds.map(r => `<option value="${r}"${r === at ? ' selected' : ''}>${roundFullName(r)}</option>`).join('')}
+    </select>
+  </label>
+  ${isLast ? '' : '<span class="upto-note">срез сезона: Чейз и тай-брейки — на этот этап</span>'}
+</div>
+<div class="table-scroll"><table class="standings-table"><thead><tr>
 ${sortTh('rank', '#', 'style="width:40px"')}
+<th class="r" style="width:44px" title="Изменение места к прошлому этапу">±</th>
 ${sortTh('driver', 'Гонщик', '', '')}
 ${sortTh('team', 'Команда', '', '')}
 ${sortTh('mfr', 'Авт.', '', '')}
@@ -85,13 +131,14 @@ ${sortTh('best', 'Лучш.')}
     const tb = driverTooltip(s);
     html += `<tr class="${rc}" title="${tb}">
   <td class="r"><span class="pos-badge"${sort ? ` title="Место в зачёте: ${s.rank}"` : ''}>${place}</span></td>
-  <td><strong class="driver-link" onclick="openDriver('${s.driver.replace(/'/g, "\\'").replace(/"/g, '&quot;')}')">${s.driver}</strong></td>
+  <td class="r">${deltaCell(prevRank[s.driver], s.rank)}</td>
+  <td><strong class="driver-link" onclick="openDriver('${s.driver.replace(/'/g, "\\'").replace(/"/g, '&quot;')}'${/quals/i.test(type) ? ",'quals'" : ''})">${s.driver}</strong></td>
   <td class="team-text">${s.team}${coalMark(s.team)}</td>
   <td>${mfrBadge(s.mfr)}</td>
   <td class="r"><strong>${s.total}</strong></td>
   ${withChase ? `<td class="r">${gapCell(s)}</td>` : ''}
   <td class="r">${winsCell}</td>
-  <td class="r" style="color:var(--muted)">${state.attendance.races[s.driver]?.size || 0} / ${state.attendance.quals[s.driver]?.size || 0}</td>
+  <td class="r" style="color:var(--muted)">${starts('races', s.driver)} / ${starts('quals', s.driver)}</td>
   <td class="r" style="color:var(--muted)">${s.best === Infinity ? '—' : 'P' + s.best}</td>
 </tr>`;
   });

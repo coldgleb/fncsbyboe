@@ -158,10 +158,10 @@ document.addEventListener('click', e => {
 const MFR_COLORS = { Toyota: '#f05555', Chevy: '#f0c000', Ford: '#7799ff' };
 const GRAY = '#7a7a9a';
 
-function drawRankChart(hist, color) {
+function drawRankChart(hist, color, allRounds = state.races.rounds) {
   const id = 'chart-driver-rank';
   if (state.charts[id]) state.charts[id].destroy();
-  const rounds = state.races.rounds.filter(r => hist[r] != null);
+  const rounds = allRounds.filter(r => hist[r] != null);
   if (!rounds.length) { state.charts[id] = null; return; }
 
   const opts = lineChartOptions();

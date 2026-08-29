@@ -1,10 +1,11 @@
 /* Карточки пилота и команды */
 
 /* ── Карточка пилота ── */
-function openDriver(driver) {
+function openDriver(driver, mode) {
+  const qualsOnly = mode === 'quals';   // из зачёта квалификаций — только квалы
   const rs = state.races.standings.find(s => s.driver === driver);
   const qs = state.quals.standings.find(s => s.driver === driver);
-  const base = rs || qs;
+  const base = (qualsOnly ? qs : rs) || rs || qs;
   if (!base) return;
 
   const rowByRound = rows => {
@@ -24,8 +25,9 @@ function openDriver(driver) {
   const racePos = Object.fromEntries(Object.entries(raceRow).map(([k, r]) => [k, r['Pos.']]));
   const qualPos = Object.fromEntries(Object.entries(qualRow).map(([k, r]) => [k, r['Pos.']]));
   // Клэши отдельной строкой не показываем — их очки идут в Дейтону (этап 1)
-  const rounds = [...new Set([...Object.keys(racePos), ...Object.keys(qualPos)].map(Number))]
-    .filter(r => !SPRINT_ROUNDS.has(r))
+  const rounds = (qualsOnly
+    ? Object.keys(qualPos).map(Number)
+    : [...new Set([...Object.keys(racePos), ...Object.keys(qualPos)].map(Number))].filter(r => !SPRINT_ROUNDS.has(r)))
     .sort((a, b) => a - b);
   const roundPts = r => scorePts(racePos[r], r) +
     (r === 1 ? [...SPRINT_ROUNDS].reduce((s, c) => s + scorePts(qualPos[c], c), 0) : 0);
@@ -54,19 +56,27 @@ function openDriver(driver) {
       : stat('Лучший старт', qs && qs.best !== Infinity ? 'P' + qs.best : '—'),
   ].join('');
 
-  const body = rounds.map(r => {
+  const metricMark = r => state.metricQuals?.has(r)
+    ? '<span class="metric-mark" title="Квалификация по метрике: без прогноза, меньше — лучше">(metric)</span> ' : '';
+
+  const qualsBody = () => rounds.map(r => `<tr>
+  <td><span class="driver-link" title="Открыть результаты этапа" onclick="goToRound(${Math.trunc(r)})">${roundFullName(r)}</span></td>
+  <td class="r">${qualPos[r] ?? (qualRow[r] ? DQ_MARK : '—')}</td>
+  <td class="r" style="color:var(--muted)">${metricMark(r)}${qualRow[r]?.['Points'] ?? '—'}</td>
+  <td class="r">${scorePts(qualPos[r], r)}</td>
+</tr>`).join('');
+
+  const body = qualsOnly ? qualsBody() : rounds.map(r => {
     const rp = racePos[r], qp = qualPos[r];
     const diff = rp != null && qp != null ? qp - rp : null;
     const diffCell = diff == null ? '<span style="color:var(--muted)">—</span>'
       : diff === 0 ? '<span style="color:var(--muted)">0</span>'
         : `<span style="color:${diff > 0 ? '#2ecc71' : '#e63946'};font-weight:700">${diff > 0 ? '+' : ''}${diff}</span>`;
     const fc = v => `<td class="r" style="color:var(--muted)">${v ?? '—'}</td>`; // очки за прогноз с листа
-    const metric = state.metricQuals?.has(r)
-      ? '<span class="metric-mark" title="Квалификация по метрике: без прогноза, меньше — лучше">(metric)</span> ' : '';
     return `<tr>
   <td><span class="driver-link" title="Открыть результаты этапа" onclick="goToRound(${r})">${roundFullName(r)}</span></td>
   <td class="r">${qp ?? (qualRow[r] ? DQ_MARK : '—')}</td>
-  <td class="r" style="color:var(--muted)">${metric}${qualRow[r]?.['Points'] ?? '—'}</td>
+  <td class="r" style="color:var(--muted)">${metricMark(r)}${qualRow[r]?.['Points'] ?? '—'}</td>
   <td class="r">${rp ?? (raceRow[r] ? DQ_MARK : '—')}</td>
   ${fc(raceRow[r]?.['Points'])}
   <td class="r">${diffCell}</td>
@@ -82,10 +92,10 @@ function openDriver(driver) {
   </div>
   <button class="modal-close" onclick="closeDriver()" title="Закрыть (Esc)">×</button>
 </div>
-<div class="modal-stats">${raceStats}</div>
-<div class="modal-stats">${qualStats}</div>
+${qualsOnly ? `<div class="modal-stats">${qualStats}</div>`
+      : `<div class="modal-stats">${raceStats}</div><div class="modal-stats">${qualStats}</div>`}
 <div class="chart-card" style="margin-bottom:16px">
-  <h3>Место в личном зачёте после этапа</h3>
+  <h3>Место в ${qualsOnly ? 'зачёте квалификаций' : 'личном зачёте'} после этапа</h3>
   <div class="chart-wrap" style="height:220px"><canvas id="chart-driver-rank"></canvas></div>
 </div>
 <div class="table-scroll"><table class="standings-table" data-sort="auto">
@@ -93,18 +103,21 @@ function openDriver(driver) {
     <th>Этап</th>
     <th class="r">Квала</th>
     <th class="r" title="Очки за прогноз в квалификации">Очки кв.</th>
-    <th class="r">Гонка</th>
+    ${qualsOnly ? '' : `<th class="r">Гонка</th>
     <th class="r" title="Очки за прогноз в гонке">Очки гн.</th>
-    <th class="r">±</th>
-    <th class="r" title="Очки в зачёт (клэши включены в Дейтону)">NASCAR</th>
+    <th class="r">±</th>`}
+    <th class="r" title="${qualsOnly ? 'Очки в зачёт квалификаций' : 'Очки в зачёт (клэши включены в Дейтону)'}">NASCAR</th>
   </tr></thead>
-  <tbody>${body || '<tr><td colspan="7" style="color:var(--muted)">Нет данных</td></tr>'}</tbody>
+  <tbody>${body || `<tr><td colspan="${qualsOnly ? 4 : 7}" style="color:var(--muted)">Нет данных</td></tr>`}</tbody>
 </table></div>
 ${rounds.some(r => state.metricQuals?.has(r))
       ? '<div class="modal-note"><span class="metric-mark">(metric)</span> — квалификация по метрике: прогноза не было, меньше очков лучше</div>'
       : ''}`;
   document.getElementById('driver-modal').classList.add('open');
-  drawRankChart(state.rankHistory[driver] || {}, MFR_COLORS[mfrKey(base.mfr)] || GRAY);
+  const color = MFR_COLORS[mfrKey(base.mfr)] || GRAY;
+  qualsOnly
+    ? drawRankChart(state.qualRankHistory?.[driver] || {}, color, state.quals.rounds)
+    : drawRankChart(state.rankHistory[driver] || {}, color);
 }
 
 // Ссылка на карточку команды — из любой таблицы

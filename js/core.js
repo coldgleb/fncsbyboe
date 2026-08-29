@@ -25,6 +25,8 @@ const state = {
   pivot: { races: '', quals: '' },
   golubFilter: { races: '', quals: '' },
   page: { races: 1, quals: 1, indRaces: 1, indQuals: 1 },
+  // Срез зачёта: этап, после которого показываем таблицу (null — последний, т.е. весь сезон)
+  upTo: { races: null, quals: null, indRaces: null, indQuals: null },
   sort: { races: null, quals: null, indRaces: null, indQuals: null },
   charts: {}
 };

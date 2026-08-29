@@ -1088,3 +1088,25 @@ table[data-sort="auto"] th:hover {
     padding: 16px;
   }
 }
+
+/* Селектор среза зачёта над таблицей */
+.table-upto {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.table-upto label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.upto-note {
+  color: var(--muted);
+  opacity: 0.8;
+}
