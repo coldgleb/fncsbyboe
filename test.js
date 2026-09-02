@@ -115,4 +115,37 @@ const row = (pos, pts, dr = 10) => ({ 'Pos.': pos, Points: pts, DR1: dr, Driver:
   assert.ok(!penMark({ penalty: 50, penaltyReason: 'a "b" c' }).includes('"b"'), 'кавычки экранированы');
 }
 
+// Чейз: топ-16 сбрасываются на стартовую сетку после 26 этапа, остальные копят очки как обычно
+{
+  const { computeChaseStandings } = new Function('state',
+    fs.readFileSync(__dirname + '/js/standings.js', 'utf8') + '; return { computeChaseStandings };')({
+      quals: { rounds: Array.from({ length: 26 }, (_, i) => i + 1) },
+      // D5 пропустил больше 5 квалификаций — вне Чейза, несмотря на очки в топ-5 по гонкам
+      qualsParticipation: Object.fromEntries(
+        Array.from({ length: 18 }, (_, i) => `D${i + 1}`)
+          .map(d => [d, new Set(Array.from({ length: d === 'D5' ? 15 : 26 }, (_, i) => i + 1))])),
+    });
+
+  // Round 1: места 1..18 задают порядок по очкам регулярного сезона
+  const regRows = Array.from({ length: 18 }, (_, i) => ({ Round: 1, 'Pos.': i + 1, Driver: `D${i + 1}` }));
+
+  // Срез ровно на 26 этапе: топ-16 (без D5) уже получают стартовую сетку
+  const at26 = computeChaseStandings(regRows);
+  const byDriver = Object.fromEntries(at26.map(s => [s.driver, s]));
+  assert.strictEqual(byDriver.D1.total, 2100, 'лидер регулярного сезона — сид 1');
+  assert.strictEqual(byDriver.D5.total, 32, 'D5 не набрал ценз квалификаций — вне Чейза, очки свои');
+  assert.strictEqual(byDriver.D17.total, 2000, 'слот D5 сдвинул границу — 17-й по очкам стал 16-м сидом');
+  assert.strictEqual(byDriver.D18.total, 19, 'вне топ-16 — очки как в обычном сезоне, без сброса');
+
+  // Этап 27: у Чейза очки копятся поверх сетки, у остальных — как раньше, без сброса
+  const withR27 = computeChaseStandings([
+    ...regRows,
+    { Round: 27, 'Pos.': 5, Driver: 'D1' },   // Чейз: 2100 + 32
+    { Round: 27, 'Pos.': 1, Driver: 'D18' },  // вне Чейза: 19 + 55
+  ]);
+  const byDriver27 = Object.fromEntries(withR27.map(s => [s.driver, s]));
+  assert.strictEqual(byDriver27.D1.total, 2132, 'Чейз: сид + очки за 27 этап');
+  assert.strictEqual(byDriver27.D18.total, 74, 'вне Чейза: сумма очков за все этапы, без сброса');
+}
+
 console.log('ok');

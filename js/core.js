@@ -27,6 +27,8 @@ const state = {
   page: { races: 1, quals: 1, indRaces: 1, indQuals: 1 },
   // Срез зачёта: этап, после которого показываем таблицу (null — последний, т.е. весь сезон)
   upTo: { races: null, quals: null, indRaces: null, indQuals: null },
+  // Переключатель «Регулярный сезон / Чейз», виден только на 26 этапе
+  chaseView: { races: 'regular', quals: 'regular' },
   sort: { races: null, quals: null, indRaces: null, indQuals: null },
   charts: {}
 };

@@ -97,10 +97,8 @@ async function load() {
 
   state.races.rows = racesRows;
   state.races.rowsWithClash = racesRowsWithClash;
-  state.races.standings = computeStandings(racesRowsWithClash);
   state.races.rounds = uniqueRounds(racesRows);
   state.quals.rows = qualsRows;
-  state.quals.standings = computeStandings(qualsRows);
   state.quals.rounds = uniqueRounds(qualsRows);
 
   // Max race position per round (for colour coding)
@@ -138,13 +136,25 @@ async function load() {
     state.qualsParticipation[d].add(rnd);
   }
 
+  // Личный зачёт: после 26 этапа — Чейз (qualEligible выше уже посчитан, от неё зависит топ-16)
+  const lastRaceRound = Math.max(...state.races.rounds.filter(r => !SPRINT_ROUNDS.has(r)), 0);
+  state.races.standings = lastRaceRound > CHASE_START
+    ? computeChaseStandings(racesRowsWithClash)
+    : computeStandings(racesRowsWithClash);
+
+  const lastQualRound = Math.max(...state.quals.rounds.filter(r => !SPRINT_ROUNDS.has(r)), 0);
+  state.quals.standings = lastQualRound > CHASE_START
+    ? computeChaseStandings(qualsRows)
+    : computeStandings(qualsRows);
+
   // Место в личном зачёте после каждого этапа — для графика в карточке пилота.
   // Граница как в renderRoundStandings: клэши относятся к своему этапу
   state.rankHistory = {};
   state.teamRankHistory = {};
   for (const rnd of state.races.rounds) {
     const upTo = racesRowsWithClash.filter(r => r['Round'] < rnd + 1);
-    for (const s of computeStandings(upTo))
+    const st = rnd > CHASE_START ? computeChaseStandings(upTo) : computeStandings(upTo);
+    for (const s of st)
       (state.rankHistory[s.driver] ||= {})[rnd] = s.rank;
     for (const t of computeTeamStandings(upTo))
       (state.teamRankHistory[t.team] ||= {})[rnd] = t.rank;
@@ -153,7 +163,9 @@ async function load() {
   // То же для зачёта квалификаций — график в карточке пилота в режиме «только квалы»
   state.qualRankHistory = {};
   for (const rnd of state.quals.rounds) {
-    for (const s of computeStandings(qualsRows.filter(r => r['Round'] <= rnd)))
+    const upTo = qualsRows.filter(r => r['Round'] <= rnd);
+    const st = rnd > CHASE_START ? computeChaseStandings(upTo) : computeStandings(upTo);
+    for (const s of st)
       (state.qualRankHistory[s.driver] ||= {})[rnd] = s.rank;
   }
 
@@ -172,8 +184,9 @@ async function load() {
   if (div.coalitions) {
     const rerank = arr => arr.map((x, i) => ({ ...x, rank: i + 1 }));
     const indep = team => team && team !== '—' && !state.coalitions.has(team);
-    state.indRaces.standings = rerank(state.races.standings.filter(s => indep(s.team)));
-    state.indQuals.standings = rerank(state.quals.standings.filter(s => indep(s.team)));
+    // Независимые Чейз не считают — берём из «сырых» строк, а не из (возможно) чейзового state.races.standings
+    state.indRaces.standings = rerank(computeStandings(racesRowsWithClash).filter(s => indep(s.team)));
+    state.indQuals.standings = rerank(computeStandings(qualsRows).filter(s => indep(s.team)));
     state.indTeams = rerank(state.teamStandings.filter(t => indep(t.team)));
   }
 

@@ -9,6 +9,10 @@ function nascarPts(pos) {
 const SPRINT_ROUNDS = new Set([1.1, 1.2]);
 const DR_KEYS = ['DR1', 'DR2', 'DR3', 'DR4'];
 
+// Регулярный сезон — 26 этапов, дальше начинается Чейз (плей-офф топ-16)
+const CHASE_START = 26;
+const CHASE_POINTS = [2100, 2075, 2065, 2060, 2055, 2050, 2045, 2040, 2035, 2030, 2025, 2020, 2015, 2010, 2005, 2000];
+
 /* Очки в чемпионат (вторичные, п. 9.2). Клэш формально внезачётный (п. 11.1), но его очки
    в зачёт идут — это подтверждено сверкой с официальными протоколами, как и формула ниже
    (она точнее таблицы из п. 11.4). */
@@ -200,6 +204,36 @@ function qualEligible(driver) {
   const attended = state.qualsParticipation[driver]?.size || 0;
   const heldRounds = state.quals.rounds.filter(r => !SPRINT_ROUNDS.has(r)).length;
   return heldRounds - attended <= 5;
+}
+
+// Топ-16 и их стартовые баллы фиксируются на 26 этапе — не зависят от того, до какого
+// этапа считается текущий срез (rows может включать и более поздние этапы).
+function chaseSeedOrder(standingsAt26) {
+  const seeds = {};
+  let seed = 0;
+  for (const s of standingsAt26) {
+    if (seed >= 16) break;
+    if (qualEligible(s.driver)) seeds[s.driver] = { seed: ++seed, points: CHASE_POINTS[seed - 1] };
+  }
+  return seeds;
+}
+
+/* Зачёт с учётом Чейза: топ-16 берут стартовые баллы + очки, набранные строго после
+   26 этапа; остальные копят очки как в обычном сезоне (computeStandings без изменений). */
+function computeChaseStandings(rows) {
+  const seeds = chaseSeedOrder(computeStandings(rows.filter(r => r['Round'] <= CHASE_START)));
+  const base = computeStandings(rows);
+  const postMap = Object.fromEntries(
+    computeStandings(rows.filter(r => r['Round'] > CHASE_START)).map(s => [s.driver, s]));
+
+  const merged = base.map(s => {
+    const sd = seeds[s.driver];
+    if (!sd) return s;
+    const p = postMap[s.driver] || {};
+    return { ...s, ...p, driver: s.driver, total: sd.points + (p.total || 0), chaseSeed: sd.seed };
+  }).sort(standingsCmp);
+
+  return merged.map((s, i) => ({ ...s, rank: i + 1, bestPositions: [...s.positions].sort((a, b) => a - b) }));
 }
 
 function buildPlayoffSet(type) {

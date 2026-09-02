@@ -16,14 +16,24 @@ const roundsOf = type => (/quals/i.test(type) ? state.quals : state.races).round
 
 const isIndep = team => team && team !== '—' && !state.coalitions?.has(team);
 
+// Реальный Чейз (очки сброшены на сетку), а не просто «топ-16 в зачёте»:
+// с 27 этапа — всегда, на 26-м — по переключателю. У независимых Чейза нет вообще.
+const isChaseMode = (type, n) => !type.startsWith('ind')
+  && (n > CHASE_START || (n === CHASE_START && state.chaseView[type] === 'chase'));
+
 // Зачёт по состоянию после этапа n (клэши относятся к своему этапу — граница до следующего целого)
 function standingsUpTo(type, n) {
   const rows = (/quals/i.test(type) ? state.quals.rows : state.races.rowsWithClash)
     .filter(r => r['Round'] < n + 1);
-  const st = computeStandings(rows);
+  const st = isChaseMode(type, n) ? computeChaseStandings(rows) : computeStandings(rows);
   return type.startsWith('ind')
     ? st.filter(s => isIndep(s.team)).map((x, i) => ({ ...x, rank: i + 1 }))
     : st;
+}
+
+function setChaseView(type, val) {
+  state.chaseView[type] = val;
+  renderTable(type);
 }
 
 function setUpTo(type, val) {
@@ -40,7 +50,7 @@ function renderTable(type) {
   const lastRound = rounds[rounds.length - 1];
   const at = state.upTo[type] ?? lastRound;
   const isLast = at === lastRound;
-  const all = isLast ? state[type].standings : standingsUpTo(type, at);
+  const all = standingsUpTo(type, at);
   // ± к прошлому этапу
   const prevRound = Math.max(...rounds.filter(r => r < at), 0);
   const prevRank = prevRound
@@ -56,20 +66,31 @@ function renderTable(type) {
   // Чейз считается только в общих зачётах, не в зачёте независимых, и только по свежему зачёту
   const withChase = !type.startsWith('ind') && isLast;
   const playoffSet = withChase ? buildPlayoffSet(type) : new Set();
-  // первый претендент вне Чейза (граница отсечки) и последний из Чейза
-  const cutoffDriver = withChase ? all.find(s => !playoffSet.has(s.driver) && qualEligible(s.driver)) : null;
-  const chase = all.filter(s => playoffSet.has(s.driver));
+  const isChase = withChase && isChaseMode(type, at);
+
+  const chase = all.filter(s => playoffSet.has(s.driver));   // чейзовые в порядке появления в all
+  // Линия — всегда сразу после ПОСЛЕДНЕГО чейзового по факту появления, а не по позиции:
+  // ценз квалификаций может выбить кого-то из топ-16 по очкам, тогда чейзовые идут не подряд
+  let lastChaseIdx = -1;
+  all.forEach((s, i) => { if (playoffSet.has(s.driver)) lastChaseIdx = i; });
+  const afterChase = lastChaseIdx >= 0 ? all[lastChaseIdx + 1] : null;
+
+  // Регулярный сезон (очки не сброшены) — старый расчёт «до отсечки»
+  const cutoffDriver = all.find(s => !playoffSet.has(s.driver) && qualEligible(s.driver));
   const lastChase = chase[chase.length - 1];
+  // Чейз (очки уже сброшены на сетку) — расчёт «внутри своей группы»
+  const chaseLeader = chase[0];
 
   const gapCell = s => {
     const dash = '<span style="color:var(--muted)">—</span>';
     if (!qualEligible(s.driver)) return dash;
-    // в Чейзе считаем от первого вне, вне Чейза — от последнего в нём
-    const ref = playoffSet.has(s.driver) ? cutoffDriver : lastChase;
+    const ref = isChase
+      ? (playoffSet.has(s.driver) ? chaseLeader : afterChase)
+      : (playoffSet.has(s.driver) ? cutoffDriver : lastChase);
     if (!ref) return dash;
+    if (s.driver === ref.driver) return '<span style="color:var(--muted)">0</span>';
     const d = s.total - ref.total;
-    // на отсечке очки могут совпасть: ни преимущества, ни отставания — решает тай-брейк
-    if (d === 0) return '<span style="color:var(--muted)" title="Равенство очков на отсечке — решает тай-брейк">0</span>';
+    if (d === 0) return '<span style="color:var(--muted)" title="Равенство очков — решает тай-брейк">0</span>';
     return `<span style="color:${d > 0 ? '#2ecc71' : '#e63946'};font-weight:700">${d > 0 ? '+' : ''}${d}</span>`;
   };
 
@@ -100,6 +121,11 @@ function renderTable(type) {
     </select>
   </label>
   ${isLast ? '' : '<span class="upto-note">срез сезона: Чейз и тай-брейки — на этот этап</span>'}
+  ${!type.startsWith('ind') && at === CHASE_START ? `
+  <div class="round-toggle" style="margin-left:10px">
+    <button class="rtog-btn${state.chaseView[type] !== 'chase' ? ' rtog-active' : ''}" onclick="setChaseView('${type}','regular')">Регулярный сезон</button>
+    <button class="rtog-btn${state.chaseView[type] === 'chase' ? ' rtog-active' : ''}" onclick="setChaseView('${type}','chase')">Чейз</button>
+  </div>` : ''}
 </div>
 <div class="table-scroll"><table class="standings-table"><thead><tr>
 ${sortTh('rank', '#', 'style="width:40px"')}
@@ -118,7 +144,7 @@ ${sortTh('best', 'Лучш.')}
     // при своей сортировке места фиксированы: 1..n сверху вниз, место в зачёте — в тултипе
     const place = sort ? (page - 1) * PAGE_SIZE + i + 1 : s.rank;
     const inPlayoff = playoffSet.has(s.driver);
-    const isCutoff = cutoffDriver && s.driver === cutoffDriver.driver;
+    const isCutoff = afterChase && s.driver === afterChase.driver;
     const rc = [
       place <= 3 ? `rank-${place}` : '',
       inPlayoff ? 'row-playoff' : '',
