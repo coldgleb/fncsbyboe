@@ -44,6 +44,20 @@ function renderIndTeams() {
   document.getElementById('table-indTeams').innerHTML = teamTableHtml(state.indTeams, state.indTeamFilter);
 }
 
+// Полный зачёт, без учёта поискового фильтра на экране
+function exportTeamsCSV(indep) {
+  const list = indep ? state.indTeams : state.teamStandings;
+  const starts = (t, kind) => t.drivers.reduce((n, d) => n + (state.attendance[kind][d]?.size || 0), 0);
+  downloadCSV(csvFromRows(list, [
+    ['#', t => t.rank],
+    ['Команда', t => t.team],
+    ['Очки', t => t.total],
+    ['Гонок', t => starts(t, 'races')],
+    ['Квал.', t => starts(t, 'quals')],
+    ['Пилотов', t => t.drivers.length],
+  ]), indep ? 'ind-teams.csv' : 'teams.csv');
+}
+
 function filterTeams(val) {
   state.teamFilter = val;
   renderTeams();
@@ -81,6 +95,18 @@ function renderOwners() {
   }
   document.getElementById('table-owners').innerHTML = html + '</tbody></table></div>'
     + paginationHtml(page, pages, `${rows.length} машин`, p => `goOwnerPage(${p})`);
+}
+
+// Все машины целиком, без пагинации и поиска на экране
+function exportOwnersCSV() {
+  downloadCSV(csvFromRows(state.ownerStandings, [
+    ['#', o => o.rank],
+    ['Номер', o => o.car],
+    ['Пилоты', o => o.drivers.join(' · ')],
+    ['Очки', o => o.total],
+    ['Победы', o => o.wins],
+    ['Топ-5', o => o.top5.join(' · ')],
+  ]), 'owners.csv');
 }
 
 function goOwnerPage(p) {

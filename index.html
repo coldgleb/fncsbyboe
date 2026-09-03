@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NASCAR Fantasy Championship</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
   <link rel="stylesheet" href="css/style.css">
 </head>
 
@@ -17,9 +18,11 @@
       <h1>NASCAR FANTASY CHAMPIONSHIP</h1>
       <small id="header-meta">Загрузка данных…</small>
     </div>
-    <div class="round-toggle" style="margin-left:auto" title="Дивизион">
-      <button class="rtog-btn div-btn" data-div="open" onclick="switchDivision('open')">Open</button>
+    <select class="chart-select" id="year-select" style="margin-left:auto;max-width:100px" title="Сезон"
+      onchange="switchYear(this.value)"></select>
+    <div class="round-toggle" title="Дивизион">
       <button class="rtog-btn div-btn" data-div="star" onclick="switchDivision('star')">Star</button>
+      <button class="rtog-btn div-btn" data-div="open" onclick="switchDivision('open')">Open</button>
     </div>
     <button class="page-btn" onclick="init()" title="Перезагрузить данные">⟳ Обновить</button>
   </header>
@@ -72,8 +75,13 @@
       <div class="table-card">
         <div class="table-header">
           <h3>Итоговая таблица — Гонки</h3>
-          <input class="search-input" type="search" placeholder="Поиск по гонщику / команде…"
-            oninput="filterTable('races', this.value)">
+          <div class="table-controls">
+            <div id="upto-races"></div>
+            <input class="search-input" type="search" placeholder="Поиск по гонщику / команде…"
+              oninput="filterTable('races', this.value)">
+            <button class="page-btn" onclick="exportStandingsCSV('races')">⇩ CSV</button>
+            <button class="page-btn" onclick="exportProtocolXLSX('races')">⇩ Excel</button>
+          </div>
         </div>
         <div id="table-races"></div>
       </div>
@@ -83,6 +91,7 @@
           <div class="pivot-controls">
             <input class="pivot-search" type="search" placeholder="Поиск по пилоту / команде…"
               oninput="filterPivot('races', this.value)">
+            <button class="page-btn" onclick="exportProtocolCSV('races')">⇩ CSV</button>
             <div class="pivot-legend">
               <div class="legend-item">
                 <div class="legend-dot pos-p1"></div> P1
@@ -108,7 +117,7 @@
         </div>
       </div>
       <div class="pivot-card">
-        <h3 title="Позиция в квалификации минус позиция в гонке. Плюс — отыграл, минус — потерял. Клэши не учитываются">
+        <h3 title="Позиция в квалификации минус позиция в гонке. Плюс — отыграл, минус — потерял. Дуэли не учитываются">
           Отыгранные / потерянные позиции за сезон</h3>
         <div class="pivot-body">
           <div class="pivot-controls">
@@ -150,8 +159,13 @@
       <div class="table-card">
         <div class="table-header">
           <h3>Итоговая таблица — Квалификации</h3>
-          <input class="search-input" type="search" placeholder="Поиск по гонщику / команде…"
-            oninput="filterTable('quals', this.value)">
+          <div class="table-controls">
+            <div id="upto-quals"></div>
+            <input class="search-input" type="search" placeholder="Поиск по гонщику / команде…"
+              oninput="filterTable('quals', this.value)">
+            <button class="page-btn" onclick="exportStandingsCSV('quals')">⇩ CSV</button>
+            <button class="page-btn" onclick="exportProtocolXLSX('quals')">⇩ Excel</button>
+          </div>
         </div>
         <div id="table-quals"></div>
       </div>
@@ -161,6 +175,7 @@
           <div class="pivot-controls">
             <input class="pivot-search" type="search" placeholder="Поиск по пилоту / команде…"
               oninput="filterPivot('quals', this.value)">
+            <button class="page-btn" onclick="exportProtocolCSV('quals')">⇩ CSV</button>
             <div class="pivot-legend">
               <div class="legend-item">
                 <div class="legend-dot pos-p1"></div> P1
@@ -200,8 +215,11 @@
       <div class="table-card">
         <div class="table-header">
           <h3>Командный зачёт — 2 лучших результата за этап</h3>
-          <input class="search-input" type="search" placeholder="Поиск по пилоту / команде…"
-            oninput="filterTeams(this.value)">
+          <div class="table-controls">
+            <input class="search-input" type="search" placeholder="Поиск по пилоту / команде…"
+              oninput="filterTeams(this.value)">
+            <button class="page-btn" onclick="exportTeamsCSV(false)">⇩ CSV</button>
+          </div>
         </div>
         <div id="table-teams"></div>
       </div>
@@ -233,8 +251,11 @@
       <div class="table-card" style="margin-top:14px">
         <div class="table-header">
           <h3>Зачёт владельцев — по номеру машины</h3>
-          <input class="search-input" type="search" placeholder="Поиск по номеру / пилоту…"
-            oninput="filterOwners(this.value)">
+          <div class="table-controls">
+            <input class="search-input" type="search" placeholder="Поиск по номеру / пилоту…"
+              oninput="filterOwners(this.value)">
+            <button class="page-btn" onclick="exportOwnersCSV()">⇩ CSV</button>
+          </div>
         </div>
         <div id="table-owners"></div>
       </div>
@@ -244,24 +265,33 @@
       <div class="table-card">
         <div class="table-header">
           <h3>Зачёт независимых команд</h3>
-          <input class="search-input" type="search" placeholder="Поиск по пилоту / команде…"
-            oninput="filterIndTeams(this.value)">
+          <div class="table-controls">
+            <input class="search-input" type="search" placeholder="Поиск по пилоту / команде…"
+              oninput="filterIndTeams(this.value)">
+            <button class="page-btn" onclick="exportTeamsCSV(true)">⇩ CSV</button>
+          </div>
         </div>
         <div id="table-indTeams"></div>
       </div>
       <div class="table-card" style="margin-top:14px">
         <div class="table-header">
           <h3>Независимые — Гонки</h3>
-          <input class="search-input" type="search" placeholder="Поиск по гонщику / команде…"
-            oninput="filterTable('indRaces', this.value)">
+          <div class="table-controls">
+            <input class="search-input" type="search" placeholder="Поиск по гонщику / команде…"
+              oninput="filterTable('indRaces', this.value)">
+            <button class="page-btn" onclick="exportStandingsCSV('indRaces')">⇩ CSV</button>
+          </div>
         </div>
         <div id="table-indRaces"></div>
       </div>
       <div class="table-card" style="margin-top:14px">
         <div class="table-header">
           <h3>Независимые — Квалификации</h3>
-          <input class="search-input" type="search" placeholder="Поиск по гонщику / команде…"
-            oninput="filterTable('indQuals', this.value)">
+          <div class="table-controls">
+            <input class="search-input" type="search" placeholder="Поиск по гонщику / команде…"
+              oninput="filterTable('indQuals', this.value)">
+            <button class="page-btn" onclick="exportStandingsCSV('indQuals')">⇩ CSV</button>
+          </div>
         </div>
         <div id="table-indQuals"></div>
       </div>
@@ -308,8 +338,12 @@
       <div class="table-card">
         <div class="table-header">
           <h3 id="round-table-title">Гонка</h3>
-          <input class="search-input" type="search" placeholder="Поиск по пилоту / команде…"
-            oninput="filterRound(this.value)">
+          <div class="table-controls">
+            <input class="search-input" type="search" placeholder="Поиск по пилоту / команде…"
+              oninput="filterRound(this.value)">
+            <button class="page-btn" onclick="exportRoundCSV()">⇩ CSV</button>
+            <button class="page-btn" onclick="exportRoundXLSX()">⇩ Excel</button>
+          </div>
         </div>
         <div id="round-table"></div>
       </div>

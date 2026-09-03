@@ -1,11 +1,8 @@
 /* Вкладка «По этапам»: результаты и зачёты после этапа */
 
-// allRows — полный протокол этапа: подсветку лучших значений поиск сужать не должен
-function renderRoundTable(containerId, rows, cols, allRows = rows) {
-  const wrap = document.getElementById(containerId);
-  if (!rows.length) { wrap.innerHTML = '<div class="round-empty">Нет данных</div>'; return; }
-
-  // Single-column max (maxKey) and min (minKey)
+// Пороги для подсветки «лучшего значения» — общие и для экрана, и для экспорта,
+// поэтому считаются по allRows (полному протоколу), а не урезанным поиском rows.
+function roundHighlightContext(allRows, cols) {
   const colMax = {}, colMin = {};
   for (const col of cols) {
     const vals = col.maxKey || col.minKey
@@ -15,7 +12,6 @@ function renderRoundTable(containerId, rows, cols, allRows = rows) {
     if (col.minKey) colMin[col.minKey + col.label] = vals.length ? Math.min(...vals) : null;
   }
 
-  // Group top-N threshold (group + groupTop)
   const groupThresh = {};
   const groupDefs = {};
   for (const col of cols) {
@@ -31,6 +27,33 @@ function renderRoundTable(containerId, rows, cols, allRows = rows) {
     groupThresh[grp] = uniq.length >= top ? uniq[top - 1] : (uniq[uniq.length - 1] ?? null);
   }
 
+  return { colMax, colMin, groupThresh };
+}
+
+function isRoundCellHighlighted(col, r, { colMax, colMin, groupThresh }) {
+  if (col.maxKey) {
+    const mx = colMax[col.maxKey + col.label];
+    return mx != null && r[col.maxKey] != null && r[col.maxKey] === mx;
+  }
+  if (col.minKey) {
+    const mn = colMin[col.minKey + col.label];
+    return mn != null && r[col.minKey] != null && r[col.minKey] === mn;
+  }
+  if (col.group) {
+    const thresh = groupThresh[col.group];
+    const v = r[col.key];
+    return thresh != null && v != null && v >= thresh;
+  }
+  return false;
+}
+
+// allRows — полный протокол этапа: подсветку лучших значений поиск сужать не должен
+function renderRoundTable(containerId, rows, cols, allRows = rows) {
+  const wrap = document.getElementById(containerId);
+  if (!rows.length) { wrap.innerHTML = '<div class="round-empty">Нет данных</div>'; return; }
+
+  const ctx = roundHighlightContext(allRows, cols);
+
   let html = '<div class="table-scroll"><table class="round-table" data-sort="auto"><thead><tr>';
   for (const { label, cls, title } of cols)
     html += `<th class="${cls || ''}"${title ? ` title="${title}"` : ''}>${label}</th>`;
@@ -39,21 +62,10 @@ function renderRoundTable(containerId, rows, cols, allRows = rows) {
   for (const r of rows) {
     html += '<tr>';
     for (const col of cols) {
-      const { key, cls, fmt, maxKey, group } = col;
+      const { key, cls, fmt } = col;
       const v = r[key];
       const display = fmt ? fmt(v, r) : (v == null ? '—' : v);
-      const { minKey } = col;
-      let highlight = false;
-      if (maxKey) {
-        const mx = colMax[maxKey + col.label];
-        highlight = mx != null && r[maxKey] != null && r[maxKey] === mx;
-      } else if (minKey) {
-        const mn = colMin[minKey + col.label];
-        highlight = mn != null && r[minKey] != null && r[minKey] === mn;
-      } else if (group) {
-        const thresh = groupThresh[group];
-        highlight = thresh != null && v != null && v >= thresh;
-      }
+      const highlight = isRoundCellHighlighted(col, r, ctx);
       const cellStyle = highlight ? ' style="color:#f1c40f;font-weight:700"' : '';
       html += `<td class="${cls || ''}"${cellStyle}>${display}</td>`;
     }
@@ -68,8 +80,77 @@ function renderRoundTable(containerId, rows, cols, allRows = rows) {
    П. 4.9.5 (смена производителя обнуляет очки машины) в данных не подтверждается: все «смены»
    оказались разовыми гостевыми строками и опечатками с потерянным ведущим нулём. ── */
 
-const ROUND_VIEWS = ['race', 'qual', 'clash1', 'clash2', 'st-drivers', 'st-teams', 'st-owners'];
+const ROUND_VIEWS = ['race', 'qual', 'duel1', 'duel2', 'st-drivers', 'st-teams', 'st-owners'];
+const ROUND_VIEW_LABEL = {
+  race: 'Race', qual: 'Qual', duel1: 'Duel 1', duel2: 'Duel 2',
+  'st-drivers': 'Standings', 'st-teams': 'Teams', 'st-owners': 'Owners',
+};
 let roundView = 'race';
+
+// Название трассы без номера этапа: state.roundNames хранит «26 · Daytona»
+const trackNameOf = roundNum => (state.roundNames[String(roundNum)] || '').split(' · ')[1] || '';
+
+// «2026 Open - Daytona - Race»
+const roundExportName = roundNum => `${exportSeriesLabel()} - ${trackNameOf(roundNum)} - ${ROUND_VIEW_LABEL[roundView]}`;
+
+// Полные данные текущего вида таблицы этапа — для экспорта в CSV в обход поиска на экране
+let roundExport = null;
+
+// roundExport.cols — либо готовые пары [заголовок, row => значение] (зачёты после этапа),
+// либо «сырые» определения колонок таблицы этапа ({key, label, maxKey, group, …}) —
+// вторые нужны как есть для подсветки лучших значений при экспорте в Excel.
+const roundColsToPairs = cols => cols.map(c => Array.isArray(c) ? c : [c.label, r => r[c.key] ?? '']);
+
+function exportRoundCSV() {
+  if (!roundExport) return;
+  const { cols, rows, filename } = roundExport;
+  downloadCSV(csvFromRows(rows, roundColsToPairs(cols)), `${filename}.csv`);
+}
+
+// Протокол этапа в .xlsx — заливка столбцов по типу метрики (квала, дропы, штрафы),
+// как в официальном протоколе; ячейка, подсвеченная на экране как лучшее значение
+// (жёлтый текст), заливается жёлтым и в Excel — вместо обычного цвета своего столбца.
+const ROUND_HIGHLIGHT_FILL = 'F5E6A8';
+
+async function exportRoundXLSX() {
+  if (!roundExport) return;
+  const { cols, rows, filename } = roundExport;
+  const isRaw = cols.length > 0 && !Array.isArray(cols[0]);
+  let pairs = roundColsToPairs(cols);
+
+  // Пустые столбцы (например, DR3/DR4 в квале по метрике, где их просто нет) убираем
+  // до записи в лист — сама подсветку лучших значений считаем по полным исходным rows
+  const keep = pairs.map(([, fn]) => rows.some(r => !isBlankCell(fn(r))));
+  const keptCols = isRaw ? cols.filter((_, i) => keep[i]) : cols;
+  pairs = pairs.filter((_, i) => keep[i]);
+  const keptRows = dropEmptyRows(pairs, rows);
+  const ctx = isRaw ? roundHighlightContext(rows, keptCols) : null;
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Round');
+
+  ws.addRow(pairs.map(([label]) => label));
+  ws.getRow(1).eachCell(c => {
+    c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    c.fill = solidFill('1A1A1A');
+    c.alignment = { horizontal: 'center' };
+  });
+
+  for (const r of keptRows) {
+    const row = ws.addRow(pairs.map(([, fn]) => fn(r)));
+    row.eachCell(cell => cell.alignment = { horizontal: 'center' });
+    if (isRaw) keptCols.forEach((col, i) => {
+      const cell = row.getCell(i + 1);
+      const hex = isRoundCellHighlighted(col, r, ctx) ? ROUND_HIGHLIGHT_FILL
+        : col.key === 'M.' ? mfrFillHex(r['M.'])
+          : ROUND_COL_FILL[col.key];
+      if (hex) cell.fill = solidFill(hex);
+    });
+  }
+
+  autoSizeColumns(ws);
+  downloadXLSX(wb, `${filename}.xlsx`);
+}
 
 function setRoundView(view) {
   roundView = view;
@@ -80,7 +161,7 @@ function setRoundView(view) {
 
 function renderRoundToggle(isRound1) {
   const btns = isRound1
-    ? [['race', 'Гонка'], ['clash1', 'Клэш 1'], ['clash2', 'Клэш 2'], ['qual', 'Квалификация']]
+    ? [['qual', 'Квалификация'], ['duel1', 'Дуэль 1'], ['duel2', 'Дуэль 2'], ['race', 'Гонка']]
     : [['race', 'Гонка'], ['qual', 'Квалификация']];
   btns.push(['st-drivers', 'Личный'], ['st-teams', 'Командный'], ['st-owners', 'Владельцы']);
   document.getElementById('round-toggle').innerHTML = btns.map(([v, label]) =>
@@ -106,35 +187,51 @@ function filterRound(val) {
 
 // kind: 'st-drivers' | 'st-teams' | 'st-owners' — зачёт по состоянию после этапа
 function renderRoundStandings(kind, roundNum) {
-  // Клэши (1.1/1.2) относятся к своему этапу, поэтому граница — до следующего целого
-  const upTo = n => state.races.rowsWithClash.filter(r => r['Round'] < n + 1);
+  // Дуэли (1.1/1.2) относятся к своему этапу, поэтому граница — до следующего целого
+  const upTo = n => state.races.rowsWithDuel.filter(r => r['Round'] < n + 1);
   const prevRound = Math.max(...state.races.rounds.filter(r => r < roundNum), 0);
   const rowsNow = upTo(roundNum);
   const rowsPrev = prevRound ? upTo(prevRound) : [];
 
   let head, body;
   if (kind === 'st-teams') {
+    const full = computeTeamStandings(rowsNow);
+    roundExport = { rows: full, filename: roundExportName(roundNum), cols: [
+      ['#', t => t.rank], ['Команда', t => t.team], ['Очки', t => t.total],
+      ['Топ-10', t => t.bestPositions.slice(0, 10).join(' · ')],
+    ] };
     const prevPos = Object.fromEntries(computeTeamStandings(rowsPrev).map(t => [t.team, t.rank]));
     head = '<th>Команда</th><th class="r">Очки</th><th class="r" title="Десять лучших финишей пилотов команды">Топ-10</th>';
-    body = computeTeamStandings(rowsNow).filter(t => roundHit(t.team, ...t.drivers))
+    body = full.filter(t => roundHit(t.team, ...t.drivers))
       .map(t => [t.rank, deltaCell(prevPos[t.team], t.rank),
     `<td><strong>${teamLink(t.team)}</strong>${coalMark(t.team)}</td>
    <td class="r" title="${scorersTooltip(t)}">${penMark(t)}<strong>${t.total}</strong></td>
    <td class="r" style="color:var(--muted)">${t.bestPositions.slice(0, 10).join(' · ') || '—'}</td>`]);
   } else if (kind === 'st-owners') {
+    const full = computeOwnerStandings(rowsNow);
+    roundExport = { rows: full, filename: roundExportName(roundNum), cols: [
+      ['#', o => o.rank], ['Номер', o => o.car], ['Пилоты', o => o.drivers.join(' · ')],
+      ['Очки', o => o.total], ['Топ-5', o => o.top5.join(' · ')],
+    ] };
     const prevPos = Object.fromEntries(computeOwnerStandings(rowsPrev).map(o => [o.car, o.rank]));
     head = '<th>Номер</th><th>Пилоты</th><th class="r">Очки</th><th class="r" title="Пять лучших финишей">Топ-5</th>';
-    body = computeOwnerStandings(rowsNow).filter(o => roundHit(o.car, ...o.drivers))
+    body = full.filter(o => roundHit(o.car, ...o.drivers))
       .map(o => [o.rank, deltaCell(prevPos[o.car], o.rank),
     `<td><strong>#${o.car}</strong></td>
    <td class="team-text">${o.drivers.sort().join(' · ')}</td>
    <td class="r"><strong>${o.total}</strong></td>
    <td class="r" style="color:var(--muted)">${o.top5.join(' · ') || '—'}</td>`]);
   } else {
+    const full = computeStandings(rowsNow);
+    roundExport = { rows: full, filename: roundExportName(roundNum), cols: [
+      ['#', s => s.rank], ['Гонщик', s => s.driver], ['Команда', s => s.team],
+      ['Авт.', s => s.mfr], ['Очки', s => s.total], ['Победы', s => s.wins],
+      ['Топ-5', s => s.bestPositions.slice(0, 5).join(' · ')],
+    ] };
     const prevPos = Object.fromEntries(computeStandings(rowsPrev).map(s => [s.driver, s.rank]));
     head = '<th>Гонщик</th><th>Команда</th><th>Авт.</th><th class="r">Очки</th><th class="r">Победы</th>'
       + '<th class="r" title="Пять лучших финишей">Топ-5</th>';
-    body = computeStandings(rowsNow).filter(s => roundHit(s.driver, s.team))
+    body = full.filter(s => roundHit(s.driver, s.team))
       .map(s => [s.rank, deltaCell(prevPos[s.driver], s.rank),
     `<td><strong class="driver-link" onclick="openDriver('${s.driver.replace(/'/g, "\\'").replace(/"/g, '&quot;')}')">${s.driver}</strong></td>
    <td class="team-text">${s.team}${coalMark(s.team)}</td>
@@ -163,9 +260,9 @@ function onRoundChange() {
   const name = state.roundNames[val] || val;
   const isRound1 = roundNum === 1;
 
-  // Неизвестный вид (например, из старой ссылки) и клэши вне первого этапа — назад к гонке
+  // Неизвестный вид (например, из старой ссылки) и дуэли вне первого этапа — назад к гонке
   if (!ROUND_VIEWS.includes(roundView)) roundView = 'race';
-  if (!isRound1 && (roundView === 'clash1' || roundView === 'clash2')) roundView = 'race';
+  if (!isRound1 && (roundView === 'duel1' || roundView === 'duel2')) roundView = 'race';
   renderRoundToggle(isRound1);
   writeHash();
 
@@ -176,7 +273,7 @@ function onRoundChange() {
     return;
   }
 
-  const clashNum = roundView === 'clash1' ? 1.1 : roundView === 'clash2' ? 1.2 : null;
+  const duelNum = roundView === 'duel1' ? 1.1 : roundView === 'duel2' ? 1.2 : null;
 
   /* Места по возрастанию; дисквалифицированному (места нет) место в протоколе не положено,
      но показать его надо там, где он был бы по очкам за прогноз: ставим прямо перед лучшим
@@ -194,7 +291,9 @@ function onRoundChange() {
   const ofRound = (rows, n) => orderField(rows.filter(r => parseFloat(r['Round']) === n));
 
   const raceRows = ofRound(state.races.rows, roundNum);
-  const clashRows = clashNum != null ? ofRound(state.quals.rows, clashNum) : [];
+  const duel1Rows = isRound1 ? ofRound(state.quals.rows, 1.1) : [];
+  const duel2Rows = isRound1 ? ofRound(state.quals.rows, 1.2) : [];
+  const duelRows = duelNum === 1.1 ? duel1Rows : duelNum === 1.2 ? duel2Rows : [];
   const qualRows = ofRound(state.quals.rows, roundNum);
 
   const hitRow = r => roundHit(r['Driver'], r['Team'], r['#']);
@@ -202,11 +301,14 @@ function onRoundChange() {
   const qualDrEmpty = qualRows.every(r => DR_KEYS.every(k => r[k] == null));
 
 
-  const maxRacePos = raceRows.reduce((mx, r) => r['Pos.'] != null ? Math.max(mx, r['Pos.']) : mx, 0) || 40;
-  const qualPosFmt = v => {
+  // Цепочка отбора на Дейтоне: квала → любая дуэль → гонка. На обычном этапе
+  // дуэльной стадии нет — квала красится по прямому попаданию в гонку, как и раньше.
+  const raceDrivers = new Set(raceRows.map(r => r['Driver']));
+  const duelDrivers = new Set([...duel1Rows, ...duel2Rows].map(r => r['Driver']));
+  const qualPosFmt = (v, r) => {
     if (v == null) return DQ_MARK;
-    const green = v >= 1 && v <= maxRacePos;
-    return `<span style="color:${green ? '#2ecc71' : '#e63946'};font-weight:700">${v}</span>`;
+    const made = isRound1 ? duelDrivers.has(r['Driver']) : raceDrivers.has(r['Driver']);
+    return `<span style="color:${made ? '#2ecc71' : '#e63946'};font-weight:700">${v}</span>`;
   };
 
   const driverQualPos = Object.fromEntries(
@@ -222,7 +324,10 @@ function onRoundChange() {
           const qp = driverQualPos[r['Driver']];
           const rp = r['Pos.'];
           if (qp == null || rp == null) return '<span style="color:var(--muted)">—</span>';
-          const diff = qp - rp;
+          // Поле квалы бывает больше поля гонки (эксибишены вроде Клэша) — тогда позиция
+          // в квале не может быть дальше последнего реально стартовавшего места
+          const effectiveQp = Math.min(qp, raceRows.length);
+          const diff = effectiveQp - rp;
           if (diff === 0) return '<span style="color:var(--muted)">0</span>';
           const color = diff > 0 ? '#2ecc71' : '#e63946';
           return `<span style="color:${color};font-weight:700">${diff > 0 ? '+' : ''}${diff}</span>`;
@@ -243,19 +348,19 @@ function onRoundChange() {
       { key: 'Points', label: 'Очки', cls: 'r', fmt: v => `<strong>${v ?? '—'}</strong>`, ...(raceDrEmpty ? { minKey: 'Points' } : { maxKey: 'Points' }) },
       { key: 'Pos.', label: 'NASCAR', cls: 'r', fmt: (v, r) => `<strong style="color:var(--accent)">${scorePts(r['Pos.'], roundNum)}</strong>` },
     ];
+    roundExport = { rows: raceRows, filename: roundExportName(roundNum), cols: raceCols.filter(c => c.label !== 'NASCAR') };
     renderRoundTable('round-table', raceRows.filter(hitRow), raceCols, raceRows);
-  } else if (roundView === 'clash1' || roundView === 'clash2') {
-    const clashLabel = roundView === 'clash1' ? 'Клэш 1' : 'Клэш 2';
-    document.getElementById('round-table-title').textContent = `${clashLabel} — ${name}`;
-    const clashHalf = Math.ceil(raceRows.length / 2);
-    const clashPosFmt = v => {
+  } else if (roundView === 'duel1' || roundView === 'duel2') {
+    const duelLabel = roundView === 'duel1' ? 'Дуэль 1' : 'Дуэль 2';
+    document.getElementById('round-table-title').textContent = `${duelLabel} — ${name}`;
+    const duelPosFmt = (v, r) => {
       if (v == null) return DQ_MARK;
-      const green = v >= 1 && v <= clashHalf;
-      return `<span style="color:${green ? '#2ecc71' : '#e63946'};font-weight:700">${v}</span>`;
+      const made = raceDrivers.has(r['Driver']);
+      return `<span style="color:${made ? '#2ecc71' : '#e63946'};font-weight:700">${v}</span>`;
     };
-    const clashDrEmpty = clashRows.every(r => DR_KEYS.every(k => r[k] == null));
-    const clashCols = [
-      { key: 'Pos.', label: 'Поз.', cls: 'r', fmt: clashPosFmt },
+    const duelDrEmpty = duelRows.every(r => DR_KEYS.every(k => r[k] == null));
+    const duelCols = [
+      { key: 'Pos.', label: 'Поз.', cls: 'r', fmt: duelPosFmt },
       { key: '#', label: '#', cls: 'r' },
       { key: 'Driver', label: 'Пилот' },
       { key: 'Team', label: 'Команда', fmt: v => `<span style="color:var(--muted);font-size:0.78rem">${v || '—'}${coalMark(v)}</span>` },
@@ -264,10 +369,11 @@ function onRoundChange() {
       { key: 'DR2', label: 'DR2', cls: 'r', fmt: v => v ?? '—', group: 'dr12', groupTop: 2 },
       { key: 'DR3', label: 'DR3', cls: 'r', fmt: v => v ?? '—', maxKey: 'DR3' },
       { key: 'DR4', label: 'DR4', cls: 'r', fmt: v => v ?? '—', maxKey: 'DR4' },
-      { key: 'Points', label: 'Очки', cls: 'r', fmt: v => `<strong>${v ?? '—'}</strong>`, ...(clashDrEmpty ? { minKey: 'Points' } : { maxKey: 'Points' }) },
-      { key: 'Pos.', label: 'NASCAR', cls: 'r', fmt: (v, r) => `<strong style="color:var(--accent)">${scorePts(r['Pos.'], clashNum)}</strong>` },
+      { key: 'Points', label: 'Очки', cls: 'r', fmt: v => `<strong>${v ?? '—'}</strong>`, ...(duelDrEmpty ? { minKey: 'Points' } : { maxKey: 'Points' }) },
+      { key: 'Pos.', label: 'NASCAR', cls: 'r', fmt: (v, r) => `<strong style="color:var(--accent)">${scorePts(r['Pos.'], duelNum)}</strong>` },
     ];
-    renderRoundTable('round-table', clashRows.filter(hitRow), clashCols, clashRows);
+    roundExport = { rows: duelRows, filename: roundExportName(roundNum), cols: duelCols.filter(c => c.label !== 'NASCAR') };
+    renderRoundTable('round-table', duelRows.filter(hitRow), duelCols, duelRows);
   } else {
     document.getElementById('round-table-title').textContent = `Квалификация — ${name}`;
     const qualCols = [
@@ -283,6 +389,7 @@ function onRoundChange() {
       { key: 'Points', label: 'Очки', cls: 'r', fmt: v => `<strong>${v ?? '—'}</strong>`, ...(qualDrEmpty ? { minKey: 'Points' } : { maxKey: 'Points' }) },
       { key: 'Pos.', label: 'NASCAR', cls: 'r', fmt: (v, r) => `<strong style="color:var(--accent)">${scorePts(r['Pos.'], roundNum)}</strong>` },
     ];
+    roundExport = { rows: qualRows, filename: roundExportName(roundNum), cols: qualCols.filter(c => c.label !== 'NASCAR') };
     renderRoundTable('round-table', qualRows.filter(hitRow), qualCols, qualRows);
   }
 }
@@ -297,10 +404,11 @@ function initRoundView(roundRows) {
   }
 
   const sel = document.getElementById('round-select');
-  // Only show rounds that exist in Races or Quals data
+  // Список этапов для просмотра протокола — по «сырым» строкам, а не state.*.rounds:
+  // тот уже без этапа 0 (незачётный), но его протокол смотреть можно и нужно
   const existingRounds = new Set([
-    ...state.races.rounds.map(String),
-    ...state.quals.rounds.map(String),
+    ...uniqueRounds(state.races.rows).map(String),
+    ...uniqueRounds(state.quals.rows).map(String),
   ]);
   const options = roundRows
     .filter(r => r['#'] != null && existingRounds.has(String(r['#'])) && r['#'] !== 1.1 && r['#'] !== 1.2)

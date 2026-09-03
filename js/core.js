@@ -1,6 +1,9 @@
 /* Общее: конфиг, состояние, загрузка листов, хелперы разметки, вкладки, сортировка таблиц */
 
-const SHEET_ID = '1677JnB2uVlF0AQcS3x4m45ewpKyzJkRBmwCD7EfJBBg';
+// Каждый сезон лежит на своей таблице — при добавлении нового года достаточно дописать сюда его ID
+const SHEETS_BY_YEAR = {
+  2026: '1677JnB2uVlF0AQcS3x4m45ewpKyzJkRBmwCD7EfJBBg',
+};
 const COLORS = [
   '#e63946', '#f4a261', '#2ecc71', '#3498db', '#9b59b6',
   '#1abc9c', '#e67e22', '#2980b9', '#8e44ad', '#16a085',
@@ -11,11 +14,17 @@ const PAGE_SIZE = 20;
 /* Дивизионы. Star лежит на своих листах; коалиций и зачёта им. Голубочкина в нём нет,
    а лист Round общий — календарь этапов один на оба дивизиона. */
 const DIVISIONS = {
-  open: { label: 'Open', races: 'Races', quals: 'Quals', coalitions: 'Coalitions', golub: true },
+  open: { label: 'Open', races: 'Open Races', quals: 'Open Quals', coalitions: 'Open Coalition Teams', golub: true },
   star: { label: 'Star', races: 'Star Races', quals: 'Star Quals', golub: false },
 };
 
+const YEARS = Object.keys(SHEETS_BY_YEAR).map(Number).sort((a, b) => b - a);
+
 const state = {
+  year: (() => {
+    const y = Number(new URLSearchParams(location.hash.slice(1)).get('year'));
+    return SHEETS_BY_YEAR[y] ? y : YEARS[0];
+  })(),
   division: new URLSearchParams(location.hash.slice(1)).get('div') === 'star' ? 'star' : 'open',
   races: { standings: [], rounds: [], rows: [] },
   quals: { standings: [], rounds: [], rows: [] },
@@ -39,11 +48,15 @@ function hit(q, ...fields) {
   return !s || fields.some(f => String(f ?? '').toLowerCase().includes(s));
 }
 
+// Гость — либо явно помечен «(i)» в имени, либо в этом сезоне сменил дивизион
+// (лист Changes) и в ТЕКУЩЕМ дивизионе это — его старый, откуда он ушёл
+const isGuestDriver = d => d.includes('(i)') || (state.guestByChange?.has(d) ?? false);
+
 function fetchSheet(name) {
   return new Promise((resolve, reject) => {
     const cb = `_gviz_${name.replace(/\W/g, '')}_${Date.now()}`;
     const script = document.createElement('script');
-    script.src = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=responseHandler:${cb}&sheet=${encodeURIComponent(name)}`;
+    script.src = `https://docs.google.com/spreadsheets/d/${SHEETS_BY_YEAR[state.year]}/gviz/tq?tqx=responseHandler:${cb}&sheet=${encodeURIComponent(name)}`;
     // JSONP умеет молча не ответить — без таймаута страница висит вечно
     const fail = msg => { clearTimeout(timer); delete window[cb]; script.remove(); reject(new Error(msg)); };
     const timer = setTimeout(() => fail(`Лист «${name}» не ответил за 15 секунд`), 15000);
@@ -51,7 +64,10 @@ function fetchSheet(name) {
       clearTimeout(timer);
       delete window[cb];
       script.remove();
-      const cols = json.table.cols.map(c => c.label);
+      // Лист без настоящей шапки (gviz её не распознал) отдаёт пустой label у всех
+      // колонок — тогда однимёнными ключами схлопнется всё, кроме последней колонки;
+      // берём id столбца ('A','B',...) как запасной уникальный ключ
+      const cols = json.table.cols.map(c => c.label || c.id);
       resolve(json.table.rows.map(row => {
         const vals = row.c.map(c => c ? c.v : null);
         return Object.fromEntries(cols.map((col, i) => [col, vals[i]]));
@@ -72,11 +88,11 @@ function roundFullName(n) {
   return state.roundNames?.[String(n)] || roundLabel(n);
 }
 
-// Сокращение этапа с листа Round; у клэшей — с номером (DAY C1)
+// Сокращение этапа с листа Round; у дуэлей — с номером (DAY D1)
 function roundLabel(n) {
   const abb = state.roundAbb?.[String(n)];
   if (!abb) return `Э${fmtRoundNum(n)}`;
-  return n % 1 === 0 ? abb : `${abb} C${Math.round((n % 1) * 10)}`;
+  return n % 1 === 0 ? abb : `${abb} D${Math.round((n % 1) * 10)}`;
 }
 
 /* Дисквалификация. В листе стоит «DQ», но gviz не отдаёт текст из числового столбца —
@@ -182,6 +198,91 @@ document.addEventListener('click', e => {
   th.insertAdjacentHTML('beforeend', `<span class="sort-arrow">${asc ? '▲' : '▼'}</span>`);
 });
 
+/* Выгрузка в CSV — из полных данных, а не из отрисованной таблицы: на экране
+   строки урезаны поиском и пагинацией, в файл должен уйти весь набор целиком.
+   cols — [[заголовок, row => значение]]. */
+function csvFromRows(rows, cols) {
+  const esc = s => `"${String(s ?? '').replace(/"/g, '""')}"`;
+  return [cols.map(([h]) => esc(h)).join(',')]
+    .concat(rows.map(r => cols.map(([, fn]) => esc(fn(r))).join(',')))
+    .join('\r\n');
+}
+
+async function downloadXLSX(workbook, filename) {
+  const buf = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+const solidFill = argb => ({ type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + argb } });
+
+// Те же пороги, что и у posClass в интерфейсе, но сплошной заливкой — как в официальном протоколе
+function posFillHex(pos, maxPos) {
+  if (pos === 1) return 'F1C40F';
+  if (pos <= 5) return 'BFBFBF';
+  if (pos <= 10) return 'D9A066';
+  if (pos <= 20) return '8FD98F';
+  if (pos <= (maxPos || 40)) return 'C9A0DC';
+  return 'E68A90';
+}
+
+// Убирает полностью пустые столбцы и строки ЕЩЁ ДО записи в Excel — например, DR3/DR4/CAU
+// в протоколах, где этих метрик просто нет (квала по метрике, дуэль и т.п.).
+// Резать уже готовый лист через ws.spliceColumns нельзя: ExcelJS после этого не уменьшает
+// фактическую ширину листа, оставляя пустые «хвостовые» ячейки без заголовка.
+// cols — [[заголовок, row => значение], ...], rows — обычные объекты-строки.
+const isBlankCell = v => v == null || v === '';
+
+function dropEmptyCols(cols, rows) {
+  return cols.filter(([, fn]) => rows.some(r => !isBlankCell(fn(r))));
+}
+
+function dropEmptyRows(cols, rows) {
+  return rows.filter(r => cols.some(([, fn]) => !isBlankCell(fn(r))));
+}
+
+// Ширина столбца — по самому длинному значению в нём (как «автоподбор ширины» в Excel)
+function autoSizeColumns(ws, colCount = ws.columnCount, { min = 4, max = 40, padding = 2 } = {}) {
+  for (let i = 1; i <= colCount; i++) {
+    const col = ws.getColumn(i);
+    let maxLen = 0;
+    col.eachCell({ includeEmpty: true }, cell => {
+      const len = String(cell.value ?? '').length;
+      if (len > maxLen) maxLen = len;
+    });
+    col.width = Math.min(max, Math.max(min, maxLen + padding));
+  }
+}
+
+// Заливка по манёвру пилота — как в официальном протоколе этапа: цвет столбца зависит
+// от того, что он значит (квала, дро́пы, штрафы), а не от значения в ячейке
+const ROUND_COL_FILL = {
+  'QL': 'F4B6B6', 'DR1': 'C6E2F5', 'DR2': 'C6E2F5', 'DR3': 'C6E2F5', 'DR4': 'C6E2F5',
+  'CAU': 'F5C48A', 'MN': 'F5E6A8',
+};
+const MFR_FILL = { Toyota: 'F4B6B6', Chevy: 'F5E6A8', Ford: 'B6C6F0' };
+const mfrFillHex = mfr => MFR_FILL[mfrKey(mfr)] || null;
+
+// Год + серия — общая часть имени файла во всех выгрузках («2026 Open», «2026 Star»)
+function exportSeriesLabel() {
+  return `${state.year} ${DIVISIONS[state.division].label}`;
+}
+
+function downloadCSV(csv, filename) {
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function posClass(pos, maxPos) {
   if (pos == null) return 'pos-none';
   if (pos === 1) return 'pos-p1';
@@ -196,7 +297,14 @@ function posClass(pos, maxPos) {
    и графики другого дивизиона всё равно надо сбросить полностью, а дивизион уже в хэше. */
 function switchDivision(name) {
   if (name === state.division || !DIVISIONS[name]) return;
-  location.hash = `div=${name}&tab=races`;
+  location.hash = `year=${state.year}&div=${name}&tab=races`;
+  location.reload();
+}
+
+function switchYear(year) {
+  year = Number(year);
+  if (year === state.year || !SHEETS_BY_YEAR[year]) return;
+  location.hash = `year=${year}&div=${state.division}&tab=races`;
   location.reload();
 }
 
@@ -214,6 +322,11 @@ function applyDivision() {
   }
 }
 
+function initYearSelect() {
+  const sel = document.getElementById('year-select');
+  sel.innerHTML = YEARS.map(y => `<option value="${y}"${y === state.year ? ' selected' : ''}>${y}</option>`).join('');
+}
+
 function switchTab(name) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${name}`));
@@ -223,7 +336,7 @@ function switchTab(name) {
 /* ── Состояние в адресной строке: #tab=rounds&round=8&view=qual ── */
 function writeHash() {
   const tab = document.querySelector('.tab-btn.active')?.dataset.tab || 'races';
-  const parts = [`div=${state.division}`, `tab=${tab}`];
+  const parts = [`year=${state.year}`, `div=${state.division}`, `tab=${tab}`];
   const sel = document.getElementById('round-select');
   if (tab === 'rounds' && sel?.value) parts.push(`round=${sel.value}`, `view=${roundView}`);
   // replaceState, а не pushState — иначе «назад» отматывает каждый клик по вкладке

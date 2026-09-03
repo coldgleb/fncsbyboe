@@ -182,8 +182,20 @@ main {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 16px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 10px;
+}
+
+.table-header .table-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.table-header .table-upto {
+  margin-bottom: 0;
 }
 
 .table-header h3 {
@@ -191,6 +203,10 @@ main {
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 1.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .search-input {
@@ -1039,6 +1055,10 @@ table[data-sort="auto"] th:hover {
   }
 
   .tabs {
+    flex-wrap: wrap;
+  }
+
+  .table-header {
     flex-wrap: wrap;
   }
 

@@ -13,10 +13,11 @@ const DR_KEYS = ['DR1', 'DR2', 'DR3', 'DR4'];
 const CHASE_START = 26;
 const CHASE_POINTS = [2100, 2075, 2065, 2060, 2055, 2050, 2045, 2040, 2035, 2030, 2025, 2020, 2015, 2010, 2005, 2000];
 
-/* Очки в чемпионат (вторичные, п. 9.2). Клэш формально внезачётный (п. 11.1), но его очки
+/* Очки в чемпионат (вторичные, п. 9.2). Дуэль формально внезачётная (п. 11.1), но её очки
    в зачёт идут — это подтверждено сверкой с официальными протоколами, как и формула ниже
    (она точнее таблицы из п. 11.4). */
 function scorePts(pos, round) {
+  if (round === 0) return 0; // этап 0 (The Clash) — контрольный, вне зачёта
   if (SPRINT_ROUNDS.has(round)) {
     if (!pos || pos > 10) return 0;
     return 11 - Math.round(pos); // P1→10, P2→9 … P10→1
@@ -32,7 +33,7 @@ function scorePts(pos, round) {
 function standingsCmp(a, b) {
   if (b.total !== a.total) return b.total - a.total;             // очки
   if (b.wins !== a.wins) return b.wins - a.wins;              // количество побед
-  // количество вторых, третьих... мест (клэши не в счёт)
+  // количество вторых, третьих... мест (дуэли не в счёт)
   const maxPos = Math.max(2, ...Object.keys(a.posCounts).map(Number), ...Object.keys(b.posCounts).map(Number));
   for (let p = 2; p <= maxPos; p++) {
     const diff = (b.posCounts[p] || 0) - (a.posCounts[p] || 0);
@@ -62,13 +63,24 @@ function computeTeamOf(raceRows, qualRows) {
 
 const teamOf = driver => state.teamOf?.[driver] || '—';
 
+// Пересчитывает места 1..N, пропуская гостей: гость остаётся в списке на своём
+// по очкам месте, но самого номера места у него нет — он вне зачёта
+function renumber(list) {
+  let place = 0;
+  return list.map(s => {
+    if (!s.isGuest) place++;
+    return { ...s, rank: s.isGuest ? null : place };
+  });
+}
+
 function computeStandings(rows) {
   const map = {};
   for (const r of rows) {
     const d = r['Driver'];
-    if (!d || d.includes('(i)')) continue;
+    if (!d) continue;
     if (!map[d]) map[d] = {
       driver: d, team: teamOf(d), car: r['#'] || '—', mfr: r['M.'] || '',
+      isGuest: isGuestDriver(d),
       total: 0, sheetPts: 0, best: Infinity,
       wins: 0, firstWin: Infinity, posCounts: {}, roundPts: {},
       posSum: 0, finishes: 0, top5: 0, top10: 0, positions: []
@@ -76,10 +88,11 @@ function computeStandings(rows) {
     const s = map[d];
     const pts = scorePts(r['Pos.'], r['Round']);
     s.total += pts;
-    s.sheetPts += r['Points'] || 0;
+    if (r['Round'] !== 0) s.sheetPts += r['Points'] || 0;
     const pos = r['Pos.'];
-    // Клэш приносит очки, но гоночным результатом не считается: ни победа, ни место, ни статистика
-    if (pos != null && !SPRINT_ROUNDS.has(r['Round'])) {
+    // Дуэль приносит очки, но гоночным результатом не считается: ни победа, ни место, ни статистика.
+    // Этап 0 (The Clash) не в счёт вообще нигде.
+    if (pos != null && !SPRINT_ROUNDS.has(r['Round']) && r['Round'] !== 0) {
       if (pos < s.best) s.best = pos;
       s.posSum += pos;
       s.finishes++;
@@ -97,8 +110,8 @@ function computeStandings(rows) {
     if (rnd != null) s.roundPts[rnd] = (s.roundPts[rnd] || 0) + pts;
   }
 
-  return Object.values(map).sort(standingsCmp)
-    .map((s, i) => ({ ...s, rank: i + 1, bestPositions: [...s.positions].sort((a, b) => a - b) }));
+  return renumber(Object.values(map).sort(standingsCmp)
+    .map(s => ({ ...s, bestPositions: [...s.positions].sort((a, b) => a - b) })));
 }
 
 function uniqueRounds(rows) {
@@ -117,9 +130,9 @@ function computeTeamStandings(rows, withGuestOnly = false) {
     // Гость личных очков не получает, но команде приносит и борется за зачётное место
     // наравне со своими (свои 5-е и 20-е + гость 10-й → в зачёт идут 5-е и 10-е).
     // «Guest entry» — гость без команды: очки не достаются никому.
-    // Клэш в командный зачёт не идёт (в личный — идёт); сверено с официальными итогами
+    // Дуэль в командный зачёт не идёт (в личный — идёт); сверено с официальными итогами
     if (!team || team === '—' || team === 'Guest entry' || rnd == null || !d) continue;
-    if (SPRINT_ROUNDS.has(rnd)) continue;
+    if (SPRINT_ROUNDS.has(rnd) || rnd === 0) continue; // этап 0 (The Clash) не в счёт
     if (!teamMap[team]) teamMap[team] = { team, roundMap: {}, drivers: new Set(), positions: [] };
     teamMap[team].drivers.add(d);
     if (!teamMap[team].roundMap[rnd]) teamMap[team].roundMap[rnd] = [];
@@ -151,7 +164,7 @@ function computeTeamStandings(rows, withGuestOnly = false) {
       team: t.team, total: total - penalty, penalty, penaltyReason: ded?.reason || '',
       roundPts, roundBest, scorers, drivers: [...t.drivers],
       // команда, за которую ездят одни гости, в командном зачёте не участвует
-      entered: [...t.drivers].some(d => !d.includes('(i)')),
+      entered: [...t.drivers].some(d => !isGuestDriver(d)),
       bestPositions: t.positions.sort((a, b) => a - b)
     };
   }).sort((a, b) => b.total - a.total);
@@ -176,8 +189,8 @@ function computeOwnerStandings(rows) {
     o.total += scorePts(r['Pos.'], r['Round']);
     if (r['Driver']) o.drivers.add(r['Driver']);
     const pos = r['Pos.'], rnd = r['Round'];
-    // Как и у пилотов: клэш даёт очки, но результатом не считается
-    if (pos != null && !SPRINT_ROUNDS.has(rnd)) {
+    // Как и у пилотов: дуэль даёт очки, но результатом не считается; этап 0 не в счёт вообще
+    if (pos != null && !SPRINT_ROUNDS.has(rnd) && rnd !== 0) {
       if (pos < o.best) o.best = pos;
       if (pos === 1) {
         o.wins++;
@@ -197,12 +210,15 @@ function computeOwnerStandings(rows) {
 /* ── Зачёт им. Semen GOLUBOCHKIN: точка отсчёта — его позиция на этапе.
    Очки = сколько участников оказалось ниже него, но не ниже тебя (он 33, ты 37 → 4).
    Финишировал выше — 0. Этапы без него не считаются вовсе.
-   Клэши и квалификации по метрике не в счёт. ── */
+   Дуэли и квалификации по метрике не в счёт. ── */
 
-// П. 10.3: в регулярном сезоне (26 этапов) можно пропустить не более пяти. Клэши не этапы (п. 11.1)
-function qualEligible(driver) {
-  const attended = state.qualsParticipation[driver]?.size || 0;
-  const heldRounds = state.quals.rounds.filter(r => !SPRINT_ROUNDS.has(r)).length;
+// П. 10.3: в регулярном сезоне можно пропустить не более пяти квалификаций из
+// проведённых К МОМЕНТУ at (по умолчанию — весь сезон, для реального Чейза на 26 этапе).
+// Дуэли не этапы (п. 11.1). Без at после 1 этапа посчитало бы пропуски по всем 26 —
+// тогда ценз рубил бы тех, кто пропустит квалы только в будущих этапах.
+function qualEligible(driver, at = Infinity) {
+  const attended = [...(state.qualsParticipation[driver] || [])].filter(r => r <= at).length;
+  const heldRounds = state.quals.rounds.filter(r => !SPRINT_ROUNDS.has(r) && r <= at).length;
   return heldRounds - attended <= 5;
 }
 
@@ -213,7 +229,8 @@ function chaseSeedOrder(standingsAt26) {
   let seed = 0;
   for (const s of standingsAt26) {
     if (seed >= 16) break;
-    if (qualEligible(s.driver)) seeds[s.driver] = { seed: ++seed, points: CHASE_POINTS[seed - 1] };
+    if (s.isGuest) continue; // гость не может занять место в Чейзе
+    if (qualEligible(s.driver, CHASE_START)) seeds[s.driver] = { seed: ++seed, points: CHASE_POINTS[seed - 1] };
   }
   return seeds;
 }
@@ -233,15 +250,19 @@ function computeChaseStandings(rows) {
     return { ...s, ...p, driver: s.driver, total: sd.points + (p.total || 0), chaseSeed: sd.seed };
   }).sort(standingsCmp);
 
-  return merged.map((s, i) => ({ ...s, rank: i + 1, bestPositions: [...s.positions].sort((a, b) => a - b) }));
+  return renumber(merged.map(s => ({ ...s, bestPositions: [...s.positions].sort((a, b) => a - b) })));
 }
 
-function buildPlayoffSet(type) {
+// standings — зачёт, по которому определяется топ-16 (по очкам НА ВЫБРАННЫЙ этап,
+// а не по итоговому составу Чейза в конце сезона — иначе сравнение «на тот момент»
+// сопоставляет очки одного этапа с составом, определившимся много позже)
+function buildPlayoffSet(standings, at) {
   const playoffSet = new Set();
   let slots = 16;
-  for (const s of state[type].standings) {
+  for (const s of standings) {
     if (slots <= 0) break;
-    if (qualEligible(s.driver)) { playoffSet.add(s.driver); slots--; }
+    if (s.isGuest) continue; // гость не может занять место в Чейзе
+    if (qualEligible(s.driver, at)) { playoffSet.add(s.driver); slots--; }
   }
   return playoffSet;
 }

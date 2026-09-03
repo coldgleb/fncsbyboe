@@ -40,6 +40,7 @@ function renderKPI(racesRows, qualsRows) {
 }
 
 async function init() {
+  initYearSelect();
   applyDivision();
   document.getElementById('kpi-grid').innerHTML =
     '<div class="kpi-card"><div class="loading-state"><div class="spinner"></div> Загрузка…</div></div>';
@@ -61,12 +62,13 @@ async function init() {
 
 async function load() {
   const div = DIVISIONS[state.division];
-  const [racesRows, qualsRows, roundRows, coalRows, dedRows] = await Promise.all([
-    fetchSheet(div.races),
-    fetchSheet(div.quals),
-    fetchSheet('Round'),
-    div.coalitions ? fetchSheet(div.coalitions).catch(() => []) : [],
-    fetchSheet('Deductions').catch(() => []),
+  const [racesRows, qualsRows, roundRows, coalRows, dedRows, changeRows] = await Promise.all([
+    fetchSheet(`${state.year} ${div.races}`),
+    fetchSheet(`${state.year} ${div.quals}`),
+    fetchSheet(`${state.year} Calendar`),
+    div.coalitions ? fetchSheet(`${state.year} ${div.coalitions}`).catch(() => []) : [],
+    fetchSheet(`${state.year} Deductions`).catch(() => []),
+    fetchSheet(`${state.year} Changes`).catch(() => []),
   ]);
 
   // Лист без заголовка — берём первое значение строки
@@ -89,17 +91,26 @@ async function load() {
     roundRows.filter(r => r['#'] != null && r['Abb.']).map(r => [String(r['#']), r['Abb.']])
   );
 
+  // Пилоты, сменившие дивизион в этом сезоне: в дивизионе, из которого ушли (From) —
+  // гости (очки считаются, но в зачёте они вне мест); лист общий на оба дивизиона,
+  // без настоящей шапки — gviz отдаёт "Driver"/"From"/"To" первой строкой данных,
+  // фильтр по div.label заодно отсекает и её
+  state.guestByChange = new Set(
+    changeRows.filter(r => r.B === div.label && r.A).map(r => r.A)
+  );
+
   // до любых зачётов: команда пилота берётся отсюда везде, где показывается
   state.teamOf = computeTeamOf(racesRows, qualsRows);
 
-  const clashRows = qualsRows.filter(r => SPRINT_ROUNDS.has(parseFloat(r['Round'])));
-  const racesRowsWithClash = [...racesRows, ...clashRows];
+  const duelRows = qualsRows.filter(r => SPRINT_ROUNDS.has(parseFloat(r['Round'])));
+  const racesRowsWithDuel = [...racesRows, ...duelRows];
 
   state.races.rows = racesRows;
-  state.races.rowsWithClash = racesRowsWithClash;
-  state.races.rounds = uniqueRounds(racesRows);
+  state.races.rowsWithDuel = racesRowsWithDuel;
+  // этап 0 (The Clash) не в зачёте — вне списка этапов, но строки остаются в rows для протокола
+  state.races.rounds = uniqueRounds(racesRows).filter(r => r !== 0);
   state.quals.rows = qualsRows;
-  state.quals.rounds = uniqueRounds(qualsRows);
+  state.quals.rounds = uniqueRounds(qualsRows).filter(r => r !== 0);
 
   // Max race position per round (for colour coding)
   state.roundMaxPos = {};
@@ -114,24 +125,24 @@ async function load() {
     qualsRows.filter(r => r['Round'] === rnd)
       .every(r => DR_KEYS.every(k => r[k] == null))));
 
-  // Участие по этапам: проходы в гонку и участия в квалификации (клэши не в счёт)
+  // Участие по этапам: проходы в гонку и участия в квалификации (дуэли не в счёт)
   const countRounds = rows => {
     const m = {};
     for (const r of rows) {
       const d = r['Driver'], rnd = r['Round'];
-      if (!d || rnd == null || SPRINT_ROUNDS.has(rnd)) continue;
+      if (!d || rnd == null || SPRINT_ROUNDS.has(rnd) || rnd === 0) continue;
       (m[d] ||= new Set()).add(rnd);
     }
     return m;
   };
   state.attendance = { races: countRounds(racesRows), quals: countRounds(qualsRows) };
 
-  // Участие в квалификациях (без гостей и без клэшей — клэш не этап регулярного сезона, п. 11.1)
+  // Участие в квалификациях (без гостей и без дуэлей — дуэль не этап регулярного сезона, п. 11.1)
   state.qualsParticipation = {};
   for (const r of qualsRows) {
     const d = r['Driver'];
     const rnd = r['Round'];
-    if (!d || d.includes('(i)') || rnd == null || SPRINT_ROUNDS.has(rnd)) continue;
+    if (!d || isGuestDriver(d) || rnd == null || SPRINT_ROUNDS.has(rnd) || rnd === 0) continue;
     if (!state.qualsParticipation[d]) state.qualsParticipation[d] = new Set();
     state.qualsParticipation[d].add(rnd);
   }
@@ -139,8 +150,8 @@ async function load() {
   // Личный зачёт: после 26 этапа — Чейз (qualEligible выше уже посчитан, от неё зависит топ-16)
   const lastRaceRound = Math.max(...state.races.rounds.filter(r => !SPRINT_ROUNDS.has(r)), 0);
   state.races.standings = lastRaceRound > CHASE_START
-    ? computeChaseStandings(racesRowsWithClash)
-    : computeStandings(racesRowsWithClash);
+    ? computeChaseStandings(racesRowsWithDuel)
+    : computeStandings(racesRowsWithDuel);
 
   const lastQualRound = Math.max(...state.quals.rounds.filter(r => !SPRINT_ROUNDS.has(r)), 0);
   state.quals.standings = lastQualRound > CHASE_START
@@ -148,11 +159,11 @@ async function load() {
     : computeStandings(qualsRows);
 
   // Место в личном зачёте после каждого этапа — для графика в карточке пилота.
-  // Граница как в renderRoundStandings: клэши относятся к своему этапу
+  // Граница как в renderRoundStandings: дуэли относятся к своему этапу
   state.rankHistory = {};
   state.teamRankHistory = {};
   for (const rnd of state.races.rounds) {
-    const upTo = racesRowsWithClash.filter(r => r['Round'] < rnd + 1);
+    const upTo = racesRowsWithDuel.filter(r => r['Round'] < rnd + 1);
     const st = rnd > CHASE_START ? computeChaseStandings(upTo) : computeStandings(upTo);
     for (const s of st)
       (state.rankHistory[s.driver] ||= {})[rnd] = s.rank;
@@ -175,19 +186,18 @@ async function load() {
     quals: computeGolub(qualsRows.filter(r => !state.metricQuals.has(r['Round']))),
   };
   state.gains = computeGains();
-  state.teamStandings = computeTeamStandings(racesRowsWithClash);
+  state.teamStandings = computeTeamStandings(racesRowsWithDuel);
   // сводным нужны все команды, включая те, за которые ездили одни гости
-  state.teamPivot = computeTeamStandings(racesRowsWithClash, true);
-  state.ownerStandings = computeOwnerStandings(racesRowsWithClash);
+  state.teamPivot = computeTeamStandings(racesRowsWithDuel, true);
+  state.ownerStandings = computeOwnerStandings(racesRowsWithDuel);
 
   // Зачёты независимых команд (вне коалиций), места пересчитываются
   if (div.coalitions) {
-    const rerank = arr => arr.map((x, i) => ({ ...x, rank: i + 1 }));
     const indep = team => team && team !== '—' && !state.coalitions.has(team);
     // Независимые Чейз не считают — берём из «сырых» строк, а не из (возможно) чейзового state.races.standings
-    state.indRaces.standings = rerank(computeStandings(racesRowsWithClash).filter(s => indep(s.team)));
-    state.indQuals.standings = rerank(computeStandings(qualsRows).filter(s => indep(s.team)));
-    state.indTeams = rerank(state.teamStandings.filter(t => indep(t.team)));
+    state.indRaces.standings = renumber(computeStandings(racesRowsWithDuel).filter(s => indep(s.team)));
+    state.indQuals.standings = renumber(computeStandings(qualsRows).filter(s => indep(s.team)));
+    state.indTeams = renumber(state.teamStandings.filter(t => indep(t.team)));
   }
 
   renderKPI(racesRows, qualsRows);

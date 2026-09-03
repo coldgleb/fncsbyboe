@@ -8,7 +8,7 @@ function computeGolub(rows) {
   const byRound = {};
   for (const r of rows) {
     const rnd = r['Round'];
-    if (rnd == null || r['Pos.'] == null || SPRINT_ROUNDS.has(rnd)) continue;
+    if (rnd == null || r['Pos.'] == null || SPRINT_ROUNDS.has(rnd) || rnd === 0) continue;
     (byRound[rnd] ||= []).push(r);
   }
 
@@ -20,12 +20,12 @@ function computeGolub(rows) {
     const gp = field.find(r => isGolub(r['Driver'] || ''))?.['Pos.'];
     if (gp == null) continue;  // этап без него в зачёт не идёт
     // финишировал последним — очков не набрал никто, колонка была бы пустой
-    if (!field.some(x => x['Pos.'] > gp && x['Driver'] && !isGolub(x['Driver']) && !x['Driver'].includes('(i)'))) continue;
+    if (!field.some(x => x['Pos.'] > gp && x['Driver'] && !isGolub(x['Driver']) && !isGuestDriver(x['Driver']))) continue;
     rounds.push(rnd);
     info[rnd] = { gp, n: field.length };
     for (const r of field) {
       const d = r['Driver'], pos = r['Pos.'];
-      if (!d || isGolub(d) || d.includes('(i)')) continue;
+      if (!d || isGolub(d) || isGuestDriver(d)) continue;
       const g = map[d] ||= { driver: d, team: teamOf(d), total: 0, cells: {} };
       // считаем участников, а не разницу позиций: в протоколе бывают пропуски в нумерации
       const pts = pos <= gp ? 0

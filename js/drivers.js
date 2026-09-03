@@ -10,7 +10,7 @@ function driverTooltip(s) {
 
 /* ── Срез зачёта после выбранного этапа ── */
 
-// Этапы, доступные для среза; клэши — часть первого этапа, отдельной строкой не нужны
+// Этапы, доступные для среза; дуэли — часть первого этапа, отдельной строкой не нужны
 const roundsOf = type => (/quals/i.test(type) ? state.quals : state.races).rounds
   .filter(r => !SPRINT_ROUNDS.has(r));
 
@@ -21,13 +21,13 @@ const isIndep = team => team && team !== '—' && !state.coalitions?.has(team);
 const isChaseMode = (type, n) => !type.startsWith('ind')
   && (n > CHASE_START || (n === CHASE_START && state.chaseView[type] === 'chase'));
 
-// Зачёт по состоянию после этапа n (клэши относятся к своему этапу — граница до следующего целого)
+// Зачёт по состоянию после этапа n (дуэли относятся к своему этапу — граница до следующего целого)
 function standingsUpTo(type, n) {
-  const rows = (/quals/i.test(type) ? state.quals.rows : state.races.rowsWithClash)
+  const rows = (/quals/i.test(type) ? state.quals.rows : state.races.rowsWithDuel)
     .filter(r => r['Round'] < n + 1);
   const st = isChaseMode(type, n) ? computeChaseStandings(rows) : computeStandings(rows);
   return type.startsWith('ind')
-    ? st.filter(s => isIndep(s.team)).map((x, i) => ({ ...x, rank: i + 1 }))
+    ? renumber(st.filter(s => isIndep(s.team)))
     : st;
 }
 
@@ -63,27 +63,33 @@ function renderTable(type) {
     ? all.filter(s => s.driver.toLowerCase().includes(q) || s.team.toLowerCase().includes(q))
     : all;
 
-  // Чейз считается только в общих зачётах, не в зачёте независимых, и только по свежему зачёту
-  const withChase = !type.startsWith('ind') && isLast;
-  const playoffSet = withChase ? buildPlayoffSet(type) : new Set();
+  // Чейз считается только в общих зачётах, не в зачёте независимых; виден на любом
+  // срезе сезона, начиная с 1 этапа (playoffSet — по текущему/итоговому зачёту,
+  // а сам разрыв — по очкам на выбранный этап, как и обещает upto-note ниже)
+  const withChase = !type.startsWith('ind');
+  const playoffSet = withChase ? buildPlayoffSet(all, at) : new Set();
   const isChase = withChase && isChaseMode(type, at);
 
   const chase = all.filter(s => playoffSet.has(s.driver));   // чейзовые в порядке появления в all
   // Линия — всегда сразу после ПОСЛЕДНЕГО чейзового по факту появления, а не по позиции:
-  // ценз квалификаций может выбить кого-то из топ-16 по очкам, тогда чейзовые идут не подряд
+  // ценз квалификаций может выбить кого-то из топ-16 по очкам, тогда чейзовые идут не подряд.
+  // Сам «после чейза» не может быть гостем — гость вне зачёта и границу не определяет
   let lastChaseIdx = -1;
   all.forEach((s, i) => { if (playoffSet.has(s.driver)) lastChaseIdx = i; });
-  const afterChase = lastChaseIdx >= 0 ? all[lastChaseIdx + 1] : null;
+  let afterChase = null;
+  for (let j = lastChaseIdx + 1; j < all.length; j++) {
+    if (!all[j].isGuest) { afterChase = all[j]; break; }
+  }
 
   // Регулярный сезон (очки не сброшены) — старый расчёт «до отсечки»
-  const cutoffDriver = all.find(s => !playoffSet.has(s.driver) && qualEligible(s.driver));
+  const cutoffDriver = all.find(s => !s.isGuest && !playoffSet.has(s.driver) && qualEligible(s.driver, at));
   const lastChase = chase[chase.length - 1];
   // Чейз (очки уже сброшены на сетку) — расчёт «внутри своей группы»
   const chaseLeader = chase[0];
 
   const gapCell = s => {
     const dash = '<span style="color:var(--muted)">—</span>';
-    if (!qualEligible(s.driver)) return dash;
+    if (s.isGuest || !qualEligible(s.driver, at)) return dash;
     const ref = isChase
       ? (playoffSet.has(s.driver) ? chaseLeader : afterChase)
       : (playoffSet.has(s.driver) ? cutoffDriver : lastChase);
@@ -114,7 +120,12 @@ function renderTable(type) {
   const pages = Math.ceil(rows.length / PAGE_SIZE);
   const slice = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  let html = `<div class="table-upto">
+  // При своей сортировке места нумеруются 1..n заново (сквозной номер по всему rows,
+  // не только по странице) — гостей при этом пропускаем, у них номера нет вообще
+  let sortSeq = 0;
+  const sortPlaceOf = sort ? rows.map(s => (s.isGuest ? null : ++sortSeq)) : null;
+
+  const uptoHtml = `<div class="table-upto">
   <label>Зачёт после этапа:
     <select class="chart-select" onchange="setUpTo('${type}', this.value)">
       ${rounds.map(r => `<option value="${r}"${r === at ? ' selected' : ''}>${roundFullName(r)}</option>`).join('')}
@@ -126,8 +137,13 @@ function renderTable(type) {
     <button class="rtog-btn${state.chaseView[type] !== 'chase' ? ' rtog-active' : ''}" onclick="setChaseView('${type}','regular')">Регулярный сезон</button>
     <button class="rtog-btn${state.chaseView[type] === 'chase' ? ' rtog-active' : ''}" onclick="setChaseView('${type}','chase')">Чейз</button>
   </div>` : ''}
-</div>
-<div class="table-scroll"><table class="standings-table"><thead><tr>
+</div>`;
+  // Если в шапке карточки есть свой контейнер под этот блок — рендерим туда,
+  // а не внутрь тела таблицы (пока используется только для «Квалификации»)
+  const uptoContainer = document.getElementById(`upto-${type}`);
+
+  let html = uptoContainer ? '' : uptoHtml;
+  html += `<div class="table-scroll"><table class="standings-table"><thead><tr>
 ${sortTh('rank', '#', 'style="width:40px"')}
 <th class="r" style="width:44px" title="Изменение места к прошлому этапу">±</th>
 ${sortTh('driver', 'Гонщик', '', '')}
@@ -141,12 +157,13 @@ ${sortTh('best', 'Лучш.')}
   </tr></thead><tbody>`;
 
   slice.forEach((s, i) => {
-    // при своей сортировке места фиксированы: 1..n сверху вниз, место в зачёте — в тултипе
-    const place = sort ? (page - 1) * PAGE_SIZE + i + 1 : s.rank;
+    // при своей сортировке места фиксированы: 1..n сверху вниз, место в зачёте — в тултипе;
+    // у гостя (в т.ч. временного — сменил дивизион по листу Changes) места нет вообще
+    const place = sort ? sortPlaceOf[(page - 1) * PAGE_SIZE + i] : s.rank;
     const inPlayoff = playoffSet.has(s.driver);
     const isCutoff = afterChase && s.driver === afterChase.driver;
     const rc = [
-      place <= 3 ? `rank-${place}` : '',
+      place != null && place <= 3 ? `rank-${place}` : '',
       inPlayoff ? 'row-playoff' : '',
       isCutoff ? 'row-cutoff' : '',
     ].filter(Boolean).join(' ');
@@ -156,8 +173,8 @@ ${sortTh('best', 'Лучш.')}
       : `<span style="color:var(--muted)">—</span>`;
     const tb = driverTooltip(s);
     html += `<tr class="${rc}" title="${tb}">
-  <td class="r"><span class="pos-badge"${sort ? ` title="Место в зачёте: ${s.rank}"` : ''}>${place}</span></td>
-  <td class="r">${deltaCell(prevRank[s.driver], s.rank)}</td>
+  <td class="r"><span class="pos-badge"${sort && place != null ? ` title="Место в зачёте: ${s.rank}"` : ''}>${place ?? '—'}</span></td>
+  <td class="r">${s.isGuest ? '<span style="color:var(--muted)">—</span>' : deltaCell(prevRank[s.driver], s.rank)}</td>
   <td><strong class="driver-link" onclick="openDriver('${s.driver.replace(/'/g, "\\'").replace(/"/g, '&quot;')}'${/quals/i.test(type) ? ",'quals'" : ''})">${s.driver}</strong></td>
   <td class="team-text">${s.team}${coalMark(s.team)}</td>
   <td>${mfrBadge(s.mfr)}</td>
@@ -173,6 +190,7 @@ ${sortTh('best', 'Лучш.')}
     + paginationHtml(page, pages, `${rows.length} участников`, p => `goPage('${type}',${p})`);
 
   wrap.innerHTML = html;
+  if (uptoContainer) uptoContainer.innerHTML = uptoHtml;
 }
 
 const SORT_KEYS = {
@@ -201,6 +219,55 @@ function filterTable(type, val) {
   state.filter[type] = val;
   state.page[type] = 1;
   renderTable(type);
+}
+
+// Выгружает весь зачёт целиком (тот же срез по этапу, что и на экране), а не только
+// текущую страницу и не только строки, прошедшие поиск.
+function exportStandingsCSV(type) {
+  const rounds = roundsOf(type);
+  const lastRound = rounds[rounds.length - 1];
+  const at = state.upTo[type] ?? lastRound;
+  const isLast = at === lastRound;
+  const all = standingsUpTo(type, at);
+  const starts = (kind, d) => [...(state.attendance[kind][d] || [])].filter(r => r <= at).length;
+
+  // Тот же разрыв/запас Чейза, что и gapCell на экране (см. renderTable выше) —
+  // виден на любом срезе, начиная с 1 этапа, не только на самом свежем
+  const withChase = !type.startsWith('ind');
+  const playoffSet = withChase ? buildPlayoffSet(all, at) : new Set();
+  const isChase = withChase && isChaseMode(type, at);
+  const chase = all.filter(s => playoffSet.has(s.driver));
+  let lastChaseIdx = -1;
+  all.forEach((s, i) => { if (playoffSet.has(s.driver)) lastChaseIdx = i; });
+  let afterChase = null;
+  for (let j = lastChaseIdx + 1; j < all.length; j++) {
+    if (!all[j].isGuest) { afterChase = all[j]; break; }
+  }
+  const cutoffDriver = all.find(s => !s.isGuest && !playoffSet.has(s.driver) && qualEligible(s.driver, at));
+  const lastChase = chase[chase.length - 1];
+  const chaseLeader = chase[0];
+  const chaseGap = s => {
+    if (s.isGuest || !qualEligible(s.driver, at)) return '';
+    const ref = isChase
+      ? (playoffSet.has(s.driver) ? chaseLeader : afterChase)
+      : (playoffSet.has(s.driver) ? cutoffDriver : lastChase);
+    if (!ref) return '';
+    const d = s.total - ref.total;
+    return d > 0 ? `+${d}` : String(d);
+  };
+
+  downloadCSV(csvFromRows(all, [
+    ['#', s => s.rank],
+    ['Гонщик', s => s.driver],
+    ['Команда', s => s.team],
+    ['Авт.', s => s.mfr],
+    ['Очки', s => s.total],
+    ...(withChase ? [['± Чейз', chaseGap]] : []),
+    ['Победы', s => s.wins],
+    ['Гонок', s => starts('races', s.driver)],
+    ['Квал.', s => starts('quals', s.driver)],
+    ['Лучш.', s => s.best === Infinity ? '' : s.best],
+  ]), `${type}.csv`);
 }
 
 function goPage(type, p) {
@@ -233,14 +300,15 @@ function buildPivotData(type) {
   const qualMap = type === 'races' ? posMap(state.quals.rows) : null;
 
   const order = standings.map(s => s.driver);
-  return { map, rounds, order, qualMap };
+  // Место — из самого зачёта (у гостя оно null), а не из позиции в массиве
+  const rankOf = Object.fromEntries(standings.map(s => [s.driver, s.rank]));
+  return { map, rounds, order, qualMap, rankOf };
 }
 
 function renderPivot(type) {
   const wrap = document.getElementById(`pivot-${type}`);
-  const { map, rounds, order, qualMap } = buildPivotData(type);
+  const { map, rounds, order, qualMap, rankOf } = buildPivotData(type);
   const q = state.pivot[type];
-  const rankOf = Object.fromEntries(order.map((d, i) => [d, i + 1]));
   const drivers = order.filter(d => hit(q, d, teamOf(d)));
 
   let html = `<table class="pivot-table" data-sort="auto"><thead><tr>
@@ -254,8 +322,8 @@ ${rounds.map(r => `<th title="${roundFullName(r)}">${roundLabel(r)}</th>`).join(
     const dmap = map[driver] || {};
     const qmap = qualMap ? (qualMap[driver] || {}) : null;
     const total = rounds.reduce((s, r) => s + scorePts(dmap[r], r), 0);
-    html += `<tr class="${rank <= 3 ? 'rank-' + rank : ''}">
-  <td class="driver-cell"><span class="pos-badge">${rank}</span> ${driver}${coalMark(teamOf(driver))}
+    html += `<tr class="${rank != null && rank <= 3 ? 'rank-' + rank : ''}">
+  <td class="driver-cell"><span class="pos-badge">${rank ?? '—'}</span> ${driver}${coalMark(teamOf(driver))}
   <div class="team-drivers">${teamOf(driver)}</div></td>`;
     for (const r of rounds) {
       const pos = dmap[r];
@@ -277,19 +345,106 @@ ${rounds.map(r => `<th title="${roundFullName(r)}">${roundLabel(r)}</th>`).join(
   wrap.innerHTML = html;
 }
 
+// Полный протокол сезона — как в официальной таблице: Pos/#/Пилот/Команда/Авт. + место на
+// каждом этапе + итоговые очки. Порядок и очки берём из финального зачёта (state[type].standings),
+// а не из текущего среза «до этапа», — тут всегда весь сезон целиком.
+function exportProtocolCSV(type) {
+  const { map, rounds } = buildPivotData(type);
+  const standings = state[type].standings;
+  const cols = [
+    ['Pos.', s => s.rank],
+    ['#', s => s.car],
+    ['Driver', s => s.driver],
+    ['Team', s => s.team],
+    ['M.', s => s.mfr],
+    ...rounds.map(r => [roundLabel(r), s => {
+      const dmap = map[s.driver] || {};
+      const pos = dmap[r];
+      return pos != null ? pos : r in dmap ? 'DQ' : '';
+    }]),
+    ['Points', s => s.total],
+  ];
+  downloadCSV(csvFromRows(standings, cols), `${exportSeriesLabel()}.csv`);
+}
+
+// Тот же протокол, что и exportProtocolCSV, но в .xlsx с заливкой ячеек по месту —
+// как в официальной таблице (жёлтый P1, серый топ-5, бронза топ-10, зелёный/фиолет ниже, красный — вне зачёта).
+const TOP3_FILL = ['FFE8A3', 'E0E0E0', 'EFD3B4'];
+
+async function exportProtocolXLSX(type) {
+  const { map, rounds } = buildPivotData(type);
+  // Место и очки — по срезу, выбранному в интерфейсе («Зачёт после этапа» + Чейз),
+  // а не всегда по итогу сезона; сетка позиций по этапам (map/rounds) при этом полная
+  const roundsAvail = roundsOf(type);
+  const at = state.upTo[type] ?? roundsAvail[roundsAvail.length - 1];
+  const standings = standingsUpTo(type, at);
+  const maxPosOf = r => state.roundMaxPos[r] || 40;
+  const cellFor = (s, r) => {
+    const pos = (map[s.driver] || {})[r];
+    return pos != null ? pos : r in (map[s.driver] || {}) ? 'DQ' : '';
+  };
+
+  // Третий элемент — номер этапа (только у колонок этапов); нужен и для чистки
+  // пустых столбцов, и потом для заливки по месту в конкретном этапе
+  let cols = [
+    ['Pos.', s => s.rank],
+    ['#', s => s.car],
+    ['Driver', s => s.driver],
+    ['Team', s => s.team],
+    ['M.', s => s.mfr],
+    ...rounds.map(r => [roundLabel(r), s => cellFor(s, r), r]),
+    ['Points', s => s.total],
+  ];
+  cols = dropEmptyCols(cols, standings);
+  const rows = dropEmptyRows(cols, standings);
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(type === 'quals' ? 'Quals' : 'Races', { views: [{ state: 'frozen', xSplit: 5, ySplit: 1 }] });
+
+  ws.addRow(cols.map(([label]) => label));
+  ws.getRow(1).eachCell(c => {
+    c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    c.fill = solidFill('1A1A1A');
+    c.alignment = { horizontal: 'center' };
+  });
+
+  // До какого столбца красим топ-3 сплошной заливкой — все «опознавательные» колонки
+  // (Pos/#/Driver/Team/M.), сколько бы из них ни выжило после чистки пустых
+  let idCols = cols.findIndex(([, , round]) => round != null);
+  if (idCols === -1) idCols = cols.length - 1; // остался только Points
+  if (idCols < 1) idCols = cols.length;
+
+  for (const s of rows) {
+    const dmap = map[s.driver] || {};
+    const row = ws.addRow(cols.map(([, fn]) => fn(s)));
+    if (s.rank != null && s.rank <= 3) for (let i = 1; i <= idCols; i++) row.getCell(i).fill = solidFill(TOP3_FILL[s.rank - 1]);
+    cols.forEach(([, , round], i) => {
+      if (round == null) return;
+      const cell = row.getCell(i + 1);
+      cell.alignment = { horizontal: 'center' };
+      const pos = dmap[round];
+      if (pos != null) cell.fill = solidFill(posFillHex(pos, maxPosOf(round)));
+      else if (round in dmap) cell.fill = solidFill('E68A90');
+    });
+  }
+
+  autoSizeColumns(ws);
+  downloadXLSX(wb, `${exportSeriesLabel()}.xlsx`);
+}
+
 function filterPivot(type, val) {
   state.pivot[type] = val;
   renderPivot(type);
 }
 
 /* ── Отыгранные / потерянные позиции: старт (квала) − финиш (гонка) за весь сезон.
-   Клэши не в счёт: своей квалификации у них нет. Этапы без одной из двух позиций пропускаются. ── */
+   Дуэли не в счёт: своей квалификации у них нет. Этапы без одной из двух позиций пропускаются. ── */
 function computeGains() {
   const posByRound = rows => {
     const m = {};
     for (const r of rows) {
       const d = r['Driver'], rnd = r['Round'], pos = r['Pos.'];
-      if (!d || d.includes('(i)') || rnd == null || pos == null || SPRINT_ROUNDS.has(rnd)) continue;
+      if (!d || isGuestDriver(d) || rnd == null || pos == null || SPRINT_ROUNDS.has(rnd) || rnd === 0) continue;
       // как в карточке пилота: если строк на этап несколько, берём лучшую
       if (m[d]?.[rnd] == null || pos < m[d][rnd]) (m[d] ||= {})[rnd] = pos;
     }

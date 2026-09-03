@@ -24,7 +24,7 @@ function openDriver(driver, mode) {
   const qualRow = rowByRound(state.quals.rows);
   const racePos = Object.fromEntries(Object.entries(raceRow).map(([k, r]) => [k, r['Pos.']]));
   const qualPos = Object.fromEntries(Object.entries(qualRow).map(([k, r]) => [k, r['Pos.']]));
-  // Клэши отдельной строкой не показываем — их очки идут в Дейтону (этап 1)
+  // Дуэли отдельной строкой не показываем — их очки идут в Дейтону (этап 1)
   const rounds = (qualsOnly
     ? Object.keys(qualPos).map(Number)
     : [...new Set([...Object.keys(racePos), ...Object.keys(qualPos)].map(Number))].filter(r => !SPRINT_ROUNDS.has(r)))
@@ -106,7 +106,7 @@ ${qualsOnly ? `<div class="modal-stats">${qualStats}</div>`
     ${qualsOnly ? '' : `<th class="r">Гонка</th>
     <th class="r" title="Очки за прогноз в гонке">Очки гн.</th>
     <th class="r">±</th>`}
-    <th class="r" title="${qualsOnly ? 'Очки в зачёт квалификаций' : 'Очки в зачёт (клэши включены в Дейтону)'}">NASCAR</th>
+    <th class="r" title="${qualsOnly ? 'Очки в зачёт квалификаций' : 'Очки в зачёт (дуэли включены в Дейтону)'}">NASCAR</th>
   </tr></thead>
   <tbody>${body || `<tr><td colspan="${qualsOnly ? 4 : 7}" style="color:var(--muted)">Нет данных</td></tr>`}</tbody>
 </table></div>
