@@ -88,8 +88,9 @@ const row = (pos, pts, dr = 10) => ({ 'Pos.': pos, Points: pts, DR1: dr, Driver:
 
 // Штрафы: снимаются с командного зачёта и переставляют места
 {
-  const teamStandings = (state, rows) => new Function('state',
-    fs.readFileSync(__dirname + '/js/standings.js', 'utf8') + '; return computeTeamStandings;')(state)(rows);
+  // isGuestDriver живёт в core.js — сюда подставляем заглушку, гостей в этом наборе нет
+  const teamStandings = (state, rows) => new Function('state', 'isGuestDriver',
+    fs.readFileSync(__dirname + '/js/standings.js', 'utf8') + '; return computeTeamStandings;')(state, () => false)(rows);
   const rows = [                                   // P1 → 55 очк., P2 → 35 очк.
     { Round: 1, 'Pos.': 1, Driver: 'A', Team: 'Alpha' },
     { Round: 1, 'Pos.': 2, Driver: 'B', Team: 'Beta' },
@@ -101,7 +102,24 @@ const row = (pos, pts, dr = 10) => ({ 'Pos.': pos, Points: pts, DR1: dr, Driver:
 
   const fined = teamStandings({ deductions: { Alpha: { pts: 100, reason: 'За дело' } } }, rows);
   assert.deepStrictEqual(fined.map(t => [t.team, t.total, t.rank, t.penalty, t.penaltyReason]),
-    [['Beta', 35, 1, 0, ''], ['Alpha', -45, 2, 100, 'За дело']], 'штраф снят и место потеряно');
+    [['Beta', 35, 1, 0, ''], ['Alpha', -45, 2, 100, 'За дело']], 'штраф без этапа — сезонный');
+
+  // Штраф со 2 этапа: на срезе после 1 этапа его ещё нет, после 2 — уже есть
+  const late = { deductions: { Alpha: { pts: 100, reason: 'За дело', round: 2 } } };
+  const rows2 = [...rows, { Round: 2, 'Pos.': 1, Driver: 'A', Team: 'Alpha' }];
+  assert.deepStrictEqual(teamStandings(late, rows).map(t => [t.team, t.total, t.penalty]),
+    [['Alpha', 55, 0], ['Beta', 35, 0]], 'до своего этапа штраф не применяется');
+  assert.deepStrictEqual(teamStandings(late, rows2).map(t => [t.team, t.total, t.penalty]),
+    [['Beta', 35, 0], ['Alpha', 10, 100]], 'со своего этапа штраф снят');
+}
+
+// Накопительный итог: штраф входит в него со своего этапа, а не с начала сезона
+{
+  const penaltyBy = new Function(cut('core.js', 'const penaltyBy', '/* Производителя') + '; return penaltyBy;')();
+  const t = { penalty: 100, penaltyRound: 3 };
+  assert.deepStrictEqual([1, 2, 3, 4].map(r => penaltyBy(t, r)), [0, 0, 100, 100], 'штраф с 3 этапа');
+  assert.strictEqual(penaltyBy({ penalty: 100, penaltyRound: null }, 1), 100, 'без этапа — сезонный');
+  assert.strictEqual(penaltyBy({ penalty: 0, penaltyRound: 3 }, 5), 0, 'без штрафа вычитать нечего');
 }
 
 // Метка штрафа: идёт перед очками, причина — в подсказке, кавычки из листа не рвут title
@@ -117,14 +135,14 @@ const row = (pos, pts, dr = 10) => ({ 'Pos.': pos, Points: pts, DR1: dr, Driver:
 
 // Чейз: топ-16 сбрасываются на стартовую сетку после 26 этапа, остальные копят очки как обычно
 {
-  const { computeChaseStandings } = new Function('state',
+  const { computeChaseStandings } = new Function('state', 'isGuestDriver',
     fs.readFileSync(__dirname + '/js/standings.js', 'utf8') + '; return { computeChaseStandings };')({
       quals: { rounds: Array.from({ length: 26 }, (_, i) => i + 1) },
       // D5 пропустил больше 5 квалификаций — вне Чейза, несмотря на очки в топ-5 по гонкам
       qualsParticipation: Object.fromEntries(
         Array.from({ length: 18 }, (_, i) => `D${i + 1}`)
           .map(d => [d, new Set(Array.from({ length: d === 'D5' ? 15 : 26 }, (_, i) => i + 1))])),
-    });
+    }, () => false);
 
   // Round 1: места 1..18 задают порядок по очкам регулярного сезона
   const regRows = Array.from({ length: 18 }, (_, i) => ({ Round: 1, 'Pos.': i + 1, Driver: `D${i + 1}` }));
@@ -146,6 +164,109 @@ const row = (pos, pts, dr = 10) => ({ 'Pos.': pos, Points: pts, DR1: dr, Driver:
   const byDriver27 = Object.fromEntries(withR27.map(s => [s.driver, s]));
   assert.strictEqual(byDriver27.D1.total, 2132, 'Чейз: сид + очки за 27 этап');
   assert.strictEqual(byDriver27.D18.total, 74, 'вне Чейза: сумма очков за все этапы, без сброса');
+}
+
+
+
+// Заявки: фулл-тайм машины, статистика по всем прогнозам команды и ранги с общими местами
+{
+  const src = fs.readFileSync(__dirname + '/js/entries.js', 'utf8');
+  const load = state => new Function('state', 'SPRINT_ROUNDS',
+    src + '; return { computeEntries, factByTeamRound, planByTeam, teamStats, rankBy, metricScore, isRanked };')(state, new Set([1.1, 1.2]));
+
+  // строка 0 — номера этапов, строка 1 — подписи Team/Car, дальше по строке на машину
+  const sheet = [
+    { A: null, B: null, C: 1, D: 2, E: 3, F: 4 },
+    { A: 'Team', B: 'Car', C: null, D: null, E: null, F: null },
+    { A: 'Alpha', B: '01', C: 1, D: 1, E: 1, F: 1 },       // фулл-тайм с 1 этапа
+    { A: 'Alpha', B: '02', C: null, D: 1, E: 1, F: 1 },    // фулл-тайм со 2 этапа
+    { A: 'Alpha', B: '03', C: 1, D: null, E: 1, F: null }, // парт-тайм: дыра и не до конца
+    { A: 'Beta', B: '11', C: 1, D: null, E: null, F: null },// разовая заявка — тоже парт-тайм
+  ];
+  const entries = load({}).computeEntries(sheet);
+  assert.deepStrictEqual(Object.keys(entries), ['Alpha'], 'команда без фулл-тайм машин выпадает');
+  assert.deepStrictEqual(Object.keys(entries.Alpha), ['01', '02'], 'парт-тайм машины не в счёт');
+
+  // этап 2 — по метрике; этап 0 (Clash) и дуэль 1.1 не в счёт нигде
+  const state = {
+    entries,
+    metricQuals: new Set([2]),
+    quals: {
+      rows: [
+        { Team: 'Alpha', '#': '01', Round: 0, 'Pos.': 1 },
+        { Team: 'Alpha', '#': '01', Round: 1.1, 'Pos.': 1 },
+        { Team: 'Alpha', '#': '01', Round: 1, 'Pos.': 4 },
+        { Team: 'Alpha', '#': '01', Round: 2, 'Pos.': 1 },   // метрика: в средние и топ-10 не идёт
+        { Team: 'Alpha', '#': '02', Round: 2, 'Pos.': 30 },
+        { Team: 'Alpha', '#': '03', Round: 1, 'Pos.': 20 },  // парт-тайм машина: в факт не идёт
+        { Team: 'Alpha', '#': '01', Round: 3, 'Pos.': null },// DQ: прогноз есть, позиции нет
+        { Team: 'Beta', '#': '11', Round: 1, 'Pos.': 12 },
+      ],
+    },
+    races: {
+      rows: [
+        { Team: 'Alpha', '#': '01', Round: 0, 'Pos.': 1 },
+        { Team: 'Alpha', '#': '01', Round: 1, 'Pos.': 1 },
+        { Team: 'Alpha', '#': '03', Round: 1, 'Pos.': 9 },
+        { Team: 'Alpha', '#': '01', Round: 2, 'Pos.': null },// DQ: старт есть, позиции нет
+      ],
+    },
+  };
+  const { factByTeamRound, planByTeam, teamStats, rankBy } = load(state);
+
+  assert.deepStrictEqual(factByTeamRound(), { Alpha: { 1: 1, 2: 2, 3: 1 } }, 'факт — только фулл-тайм машины');
+  // на 2 этап: план 3 (машина 01 — 2 этапа, машина 02 — 1)
+  assert.strictEqual(planByTeam('Alpha', [1, 2]), 3, 'план считается с момента заявления');
+  assert.strictEqual(planByTeam('Alpha', [1, 2, 3]), 5, 'план не зависит от пропусков');
+
+  // квалифицировался гостем без машины, а стартовал за команду — прогноз считается ей
+  state.quals.rows.push({ Team: 'Guest entry', '#': '-', Round: 3, 'Pos.': 8 });
+  state.races.rows.push({ Team: 'Alpha', '#': '03', Round: 3, 'Pos.': 8, Driver: 'G' });
+  state.quals.rows[state.quals.rows.length - 1].Driver = 'G';
+  const withGuest = load(state).teamStats(3)['Alpha'];
+  assert.strictEqual(withGuest.entriesTotal, 6, 'гостевой прогноз ушёл команде, за которую он стартовал');
+  assert.strictEqual(withGuest.top10Q, 2, 'и попал в её топ-10 квалификации');
+  state.quals.rows.pop();
+  state.races.rows.pop();
+
+  const a = teamStats(3)['Alpha'];
+  assert.strictEqual(a.entriesTotal, 5, 'все прогнозы команды, включая парт-тайм и DQ; дуэль и Clash — нет');
+  assert.strictEqual(a.realQuals, 3, 'этап по метрике — не соревновательная квалификация');
+  assert.strictEqual(a.qPosSum / a.qPosN, 12, 'AVG Q: (4 + 20) / 2, DQ без позиции не в счёт');
+  assert.strictEqual(a.top10Q, 1, 'топ-10 квалы — только по соревновательным этапам');
+  assert.strictEqual(a.starts, 3, 'старты: строки гонок без Clash, DQ считается стартом');
+  assert.strictEqual(a.rPosSum / a.rPosN, 5, 'AVG R: (1 + 9) / 2, DQ не в счёт');
+  assert.strictEqual(a.top10R, 2, 'топ-10 гонки');
+  assert.strictEqual(a.wins, 1, 'победа только из зачётного этапа');
+  assert.strictEqual(teamStats(1)['Alpha'].entriesTotal, 2, 'срез по этапу режет и статистику');
+
+  // Ранги: общее место — наименьший ранг на всю группу, следующий сдвигается на её размер
+  const rows = [{ w: 3 }, { w: 2 }, { w: 2 }, { w: 2 }, { w: 1 }, { w: null }];
+  rankBy(rows, 'w');
+  assert.deepStrictEqual(rows.map(r => r.wRank), [1, 2, 2, 2, 5, null], 'три вторых — ранг 2, дальше 5');
+  const byAvg = [{ p: 10.5 }, { p: 9 }, { p: 9 }];
+  rankBy(byAvg, 'p', 'min');
+  assert.deepStrictEqual(byAvg.map(r => r.pRank), [3, 1, 1], 'меньше — лучше');
+
+  // METRIC SCORE — пример из регламента: база 7,75 при участии 94,2% даёт 8,200
+  const { metricScore, isRanked } = load(state);
+
+  // Ценз: ранжируются только команды с ENTRIES % не ниже 50
+  assert.deepStrictEqual([44.9, 45, 100, null].map(pct => isRanked({ pct })),
+    [false, true, true, false], 'ценз участия — 45% ровно проходит');
+  // ранги считаются по прошедшим ценз, отсеянная команда чужие ранги не двигает
+  const pool = [{ pct: 100, w: 1 }, { pct: 10, w: 5 }, { pct: 60, w: 3 }];
+  rankBy(pool.filter(isRanked), 'w');
+  assert.deepStrictEqual(pool.map(t => t.wRank), [2, undefined, 1], 'вне ценза — без ранга');
+  const sample = {
+    avgQRank: 5, top10QPctRank: 8, startsPctRank: 4, avgRRank: 9,
+    top10RPctRank: 12, winsRank: 6, teamPtsRank: 7, pct: 94.2,
+  };
+  assert.strictEqual(metricScore(sample).toFixed(3), '8.200', 'метрика по примеру из регламента');
+  // 100% участия оставляет базовую метрику как есть
+  assert.strictEqual(metricScore({ ...sample, pct: 100 }).toFixed(3), '7.750', 'без пропусков — базовая метрика');
+  assert.strictEqual(metricScore({ ...sample, winsRank: null }), null, 'без одного ранга метрики нет');
+  assert.strictEqual(metricScore({ ...sample, pct: null }), null, 'без плановых заявок метрики нет');
 }
 
 console.log('ok');

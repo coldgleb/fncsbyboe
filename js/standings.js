@@ -122,6 +122,8 @@ function uniqueRounds(rows) {
    withGuestOnly — вернуть и команды из одних гостей: в зачёте их нет (место = null),
    но в сводных по этапам они показываются. ── */
 function computeTeamStandings(rows, withGuestOnly = false) {
+  // срез: последний этап, попавший в расчёт — по нему решается, вступил ли уже штраф
+  const at = Math.max(...rows.map(r => r['Round']).filter(x => x != null), 0);
   const teamMap = {};
   for (const r of rows) {
     const team = r['Team'];
@@ -157,11 +159,13 @@ function computeTeamStandings(rows, withGuestOnly = false) {
         sc.pts += pts;
       }
     }
-    // Штраф с листа Deductions уже сидит в total — по нему и место, и всё, что показывается
+    // Штраф с листа Deductions уже сидит в total — по нему и место, и всё, что показывается.
+    // Действует со своего этапа: на срезе до него команда идёт без штрафа
     const ded = state.deductions?.[t.team];
-    const penalty = ded?.pts || 0;
+    const penalty = ded && (ded.round == null || ded.round <= at) ? ded.pts : 0;
     return {
-      team: t.team, total: total - penalty, penalty, penaltyReason: ded?.reason || '',
+      team: t.team, total: total - penalty, penalty, penaltyRound: ded?.round ?? null,
+      penaltyReason: ded?.reason || '',
       roundPts, roundBest, scorers, drivers: [...t.drivers],
       // команда, за которую ездят одни гости, в командном зачёте не участвует
       entered: [...t.drivers].some(d => !isGuestDriver(d)),

@@ -93,19 +93,13 @@ const trackNameOf = roundNum => (state.roundNames[String(roundNum)] || '').split
 // «2026 Open - Daytona - Race»
 const roundExportName = roundNum => `${exportSeriesLabel()} - ${trackNameOf(roundNum)} - ${ROUND_VIEW_LABEL[roundView]}`;
 
-// Полные данные текущего вида таблицы этапа — для экспорта в CSV в обход поиска на экране
+// Полные данные текущего вида таблицы этапа — для выгрузки в обход поиска на экране
 let roundExport = null;
 
 // roundExport.cols — либо готовые пары [заголовок, row => значение] (зачёты после этапа),
 // либо «сырые» определения колонок таблицы этапа ({key, label, maxKey, group, …}) —
 // вторые нужны как есть для подсветки лучших значений при экспорте в Excel.
 const roundColsToPairs = cols => cols.map(c => Array.isArray(c) ? c : [c.label, r => r[c.key] ?? '']);
-
-function exportRoundCSV() {
-  if (!roundExport) return;
-  const { cols, rows, filename } = roundExport;
-  downloadCSV(csvFromRows(rows, roundColsToPairs(cols)), `${filename}.csv`);
-}
 
 // Протокол этапа в .xlsx — заливка столбцов по типу метрики (квала, дропы, штрафы),
 // как в официальном протоколе; ячейка, подсвеченная на экране как лучшее значение

@@ -524,6 +524,41 @@ main {
   color: var(--text);
 }
 
+/* Строка блоков в шапке («QUALS», «RACES», …). Липкой её не делаем: два sticky-ряда
+   с top: 0 наехали бы друг на друга */
+.pivot-table thead tr.grp-row th {
+  position: static;
+  color: var(--text);
+  letter-spacing: 1.2px;
+  border-left: 1px solid var(--border);
+  border-bottom: 0;
+  padding-top: 10px;
+}
+
+.entries-table th.num-col {
+  width: 40px;
+}
+
+/* Выделены только ранги и итоговая метрика; сами значения — приглушённым фоном */
+.entries-table td.val-col {
+  color: var(--muted);
+}
+
+.entries-table td.rank-col {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.entries-table td.metric-col {
+  color: var(--text);
+  font-weight: 700;
+  border-right: 1px solid var(--border);
+}
+
+.entries-table th.metric-col {
+  border-right: 1px solid var(--border);
+}
+
 .pivot-qpos {
   display: block;
   font-size: 0.65rem;

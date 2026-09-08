@@ -221,9 +221,15 @@ function filterTable(type, val) {
   renderTable(type);
 }
 
+// Имя листа и часть имени файла для каждого из четырёх личных зачётов
+const STANDINGS_SHEET = {
+  races: 'Зачёт гонок', quals: 'Зачёт квалификаций',
+  indRaces: 'Независимые гонки', indQuals: 'Независимые квалификации',
+};
+
 // Выгружает весь зачёт целиком (тот же срез по этапу, что и на экране), а не только
 // текущую страницу и не только строки, прошедшие поиск.
-function exportStandingsCSV(type) {
+function exportStandingsXLSX(type) {
   const rounds = roundsOf(type);
   const lastRound = rounds[rounds.length - 1];
   const at = state.upTo[type] ?? lastRound;
@@ -256,7 +262,7 @@ function exportStandingsCSV(type) {
     return d > 0 ? `+${d}` : String(d);
   };
 
-  downloadCSV(csvFromRows(all, [
+  downloadTableXLSX(all, [
     ['#', s => s.rank],
     ['Гонщик', s => s.driver],
     ['Команда', s => s.team],
@@ -267,7 +273,7 @@ function exportStandingsCSV(type) {
     ['Гонок', s => starts('races', s.driver)],
     ['Квал.', s => starts('quals', s.driver)],
     ['Лучш.', s => s.best === Infinity ? '' : s.best],
-  ]), `${type}.csv`);
+  ], STANDINGS_SHEET[type], `${exportSeriesLabel()} ${STANDINGS_SHEET[type].toLowerCase()}${isLast ? '' : ` после ${fmtRoundNum(at)} этапа`}.xlsx`);
 }
 
 function goPage(type, p) {
@@ -345,30 +351,9 @@ ${rounds.map(r => `<th title="${roundFullName(r)}">${roundLabel(r)}</th>`).join(
   wrap.innerHTML = html;
 }
 
-// Полный протокол сезона — как в официальной таблице: Pos/#/Пилот/Команда/Авт. + место на
-// каждом этапе + итоговые очки. Порядок и очки берём из финального зачёта (state[type].standings),
-// а не из текущего среза «до этапа», — тут всегда весь сезон целиком.
-function exportProtocolCSV(type) {
-  const { map, rounds } = buildPivotData(type);
-  const standings = state[type].standings;
-  const cols = [
-    ['Pos.', s => s.rank],
-    ['#', s => s.car],
-    ['Driver', s => s.driver],
-    ['Team', s => s.team],
-    ['M.', s => s.mfr],
-    ...rounds.map(r => [roundLabel(r), s => {
-      const dmap = map[s.driver] || {};
-      const pos = dmap[r];
-      return pos != null ? pos : r in dmap ? 'DQ' : '';
-    }]),
-    ['Points', s => s.total],
-  ];
-  downloadCSV(csvFromRows(standings, cols), `${exportSeriesLabel()}.csv`);
-}
-
-// Тот же протокол, что и exportProtocolCSV, но в .xlsx с заливкой ячеек по месту —
-// как в официальной таблице (жёлтый P1, серый топ-5, бронза топ-10, зелёный/фиолет ниже, красный — вне зачёта).
+/* Полный протокол сезона в .xlsx — как в официальной таблице: Pos/#/Пилот/Команда/Авт. + место
+   на каждом этапе + итоговые очки, с заливкой ячеек по месту
+   (жёлтый P1, серый топ-5, бронза топ-10, зелёный/фиолет ниже, красный — вне зачёта). */
 const TOP3_FILL = ['FFE8A3', 'E0E0E0', 'EFD3B4'];
 
 async function exportProtocolXLSX(type) {
@@ -429,7 +414,8 @@ async function exportProtocolXLSX(type) {
   }
 
   autoSizeColumns(ws);
-  downloadXLSX(wb, `${exportSeriesLabel()}.xlsx`);
+  // вид в имени файла: иначе протоколы гонок и квалификаций сохраняются под одним именем
+  downloadXLSX(wb, `${exportSeriesLabel()} протокол ${type === 'quals' ? 'квалификаций' : 'гонок'}.xlsx`);
 }
 
 function filterPivot(type, val) {

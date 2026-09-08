@@ -14,7 +14,7 @@ const PAGE_SIZE = 20;
 /* Дивизионы. Star лежит на своих листах; коалиций и зачёта им. Голубочкина в нём нет,
    а лист Round общий — календарь этапов один на оба дивизиона. */
 const DIVISIONS = {
-  open: { label: 'Open', races: 'Open Races', quals: 'Open Quals', coalitions: 'Open Coalition Teams', golub: true },
+  open: { label: 'Open', races: 'Open Races', quals: 'Open Quals', coalitions: 'Open Coalition Teams', entries: 'Open Entries', golub: true },
   star: { label: 'Star', races: 'Star Races', quals: 'Star Quals', golub: false },
 };
 
@@ -110,9 +110,15 @@ function coalMark(team) {
    Причина пишется руками, поэтому кавычки экранируем — иначе они рвут сам атрибут title. */
 function penMark(t) {
   if (!t.penalty) return '';
-  const why = (t.penaltyReason || '').replace(/"/g, '&quot;');
+  const why = [t.penaltyReason, t.penaltyRound != null ? `с ${fmtRoundNum(t.penaltyRound)} этапа` : '']
+    .filter(Boolean).join(' · ').replace(/"/g, '&quot;');
   return `<span class="pen-mark"${why ? ` title="${why}"` : ''}>−${t.penalty}</span> `;
 }
+
+/* Накопительный итог команды: штраф входит в него начиная со своего этапа, до него
+   кривая и сводные идут чистыми очками. Штраф без этапа считается сезонным — с первого. */
+const penaltyBy = (t, round) =>
+  t.penalty && (t.penaltyRound == null || t.penaltyRound <= round) ? t.penalty : 0;
 
 /* Производителя в листах пишут по-разному (Chevrolet, Chevy, Chv) — цвет бейджа
    и линии графика один и тот же, поэтому приводим написание к классу из CSS. */
@@ -174,6 +180,8 @@ document.addEventListener('click', e => {
   const th = e.target.closest('th');
   const table = th && th.closest('table[data-sort="auto"]');
   if (!table) return;
+  // заголовок группы столбцов (строка блоков в шапке) сам по себе ничего не сортирует
+  if (th.colSpan > 1) return;
 
   const idx = [...th.parentNode.children].indexOf(th);
   const asc = String(table.dataset.sortCol) === String(idx) ? table.dataset.sortDir !== 'asc' : true;
@@ -197,16 +205,6 @@ document.addEventListener('click', e => {
   th.parentNode.querySelectorAll('.sort-arrow').forEach(a => a.remove());
   th.insertAdjacentHTML('beforeend', `<span class="sort-arrow">${asc ? '▲' : '▼'}</span>`);
 });
-
-/* Выгрузка в CSV — из полных данных, а не из отрисованной таблицы: на экране
-   строки урезаны поиском и пагинацией, в файл должен уйти весь набор целиком.
-   cols — [[заголовок, row => значение]]. */
-function csvFromRows(rows, cols) {
-  const esc = s => `"${String(s ?? '').replace(/"/g, '""')}"`;
-  return [cols.map(([h]) => esc(h)).join(',')]
-    .concat(rows.map(r => cols.map(([, fn]) => esc(fn(r))).join(',')))
-    .join('\r\n');
-}
 
 async function downloadXLSX(workbook, filename) {
   const buf = await workbook.xlsx.writeBuffer();
@@ -273,14 +271,22 @@ function exportSeriesLabel() {
   return `${state.year} ${DIVISIONS[state.division].label}`;
 }
 
-function downloadCSV(csv, filename) {
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+/* Простая выгрузка таблицы в Excel — из полных данных, а не из отрисованной таблицы:
+   на экране строки урезаны поиском и пагинацией, в файл должен уйти весь набор целиком.
+   cols — [[заголовок, row => значение]]. Протоколы с заливкой по местам собираются
+   отдельно (exportProtocolXLSX, exportRoundXLSX) — там шапка та же, но своя раскраска. */
+async function downloadTableXLSX(rows, cols, sheetName, filename) {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(sheetName, { views: [{ state: 'frozen', ySplit: 1 }] });
+  ws.addRow(cols.map(([label]) => label));
+  ws.getRow(1).eachCell(c => {
+    c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    c.fill = solidFill('1A1A1A');
+    c.alignment = { horizontal: 'center' };
+  });
+  for (const r of rows) ws.addRow(cols.map(([, fn]) => fn(r)));
+  autoSizeColumns(ws);
+  await downloadXLSX(wb, filename);
 }
 
 function posClass(pos, maxPos) {
@@ -314,8 +320,8 @@ function applyDivision() {
   document.querySelectorAll('.div-btn').forEach(b =>
     b.classList.toggle('rtog-active', b.dataset.div === state.division));
 
-  const hidden = [...(div.golub ? [] : ['golub']), ...(div.coalitions ? [] : ['ind'])];
-  for (const tab of ['golub', 'ind']) {
+  const hidden = [...(div.golub ? [] : ['golub']), ...(div.coalitions ? [] : ['ind']), ...(div.entries ? [] : ['entries'])];
+  for (const tab of ['golub', 'ind', 'entries']) {
     const on = !hidden.includes(tab);
     document.querySelector(`.tab-btn[data-tab="${tab}"]`).style.display = on ? '' : 'none';
     if (!on && document.querySelector('.tab-btn.active')?.dataset.tab === tab) switchTab('races');

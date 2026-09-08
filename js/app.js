@@ -62,25 +62,29 @@ async function init() {
 
 async function load() {
   const div = DIVISIONS[state.division];
-  const [racesRows, qualsRows, roundRows, coalRows, dedRows, changeRows] = await Promise.all([
+  const [racesRows, qualsRows, roundRows, coalRows, dedRows, changeRows, entryRows] = await Promise.all([
     fetchSheet(`${state.year} ${div.races}`),
     fetchSheet(`${state.year} ${div.quals}`),
     fetchSheet(`${state.year} Calendar`),
     div.coalitions ? fetchSheet(`${state.year} ${div.coalitions}`).catch(() => []) : [],
     fetchSheet(`${state.year} Deductions`).catch(() => []),
     fetchSheet(`${state.year} Changes`).catch(() => []),
+    div.entries ? fetchSheet(`${state.year} ${div.entries}`).catch(() => []) : [],
   ]);
+
+  // Заявочный список машин по этапам; лист есть не у всех дивизионов — тогда вкладка скрыта
+  state.entries = computeEntries(entryRows);
 
   // Лист без заголовка — берём первое значение строки
   state.coalitions = new Set(coalRows.map(r => Object.values(r)[0]).filter(Boolean));
 
-  /* Штрафы команд в очках. Лист Deductions общий на оба дивизиона (как Round) и без столбца
-     этапа, поэтому штраф считается сезонным: вычитается из командного зачёта на любой момент,
-     в том числе в зачётах «после этапа» и в истории мест. До computeTeamStandings — она читает
-     state.deductions. Пустого листа хватает, чтобы штрафов просто не было. */
+  /* Штрафы команд в очках. Лист Deductions общий на оба дивизиона (как Round). Столбец Round —
+     этап, с которого штраф действует: в зачётах «после этапа» и в истории мест до него команда
+     идёт без штрафа. Пустой Round — штраф сезонный, как было раньше. До computeTeamStandings —
+     она читает state.deductions. Пустого листа хватает, чтобы штрафов просто не было. */
   state.deductions = Object.fromEntries(
     dedRows.filter(r => r['Team'] && r['Points'] != null)
-      .map(r => [r['Team'], { pts: r['Points'], reason: r['Reason'] || '' }]));
+      .map(r => [r['Team'], { pts: r['Points'], reason: r['Reason'] || '', round: r['Round'] ?? null }]));
 
   // названия этапов нужны раньше вкладки «По этапам» — их показывает селектор среза зачёта
   state.roundNames = Object.fromEntries(
@@ -208,6 +212,7 @@ async function load() {
   renderPivot('quals');
   renderTeamTab();
   renderOwners();
+  if (state.entries) renderEntries();
   if (div.coalitions) {
     renderTable('indRaces');
     renderTable('indQuals');

@@ -153,12 +153,13 @@ function openTeam(team) {
     return 1 + state.teamStandings.filter(x => (x.roundPts[r] ?? -1) > mine).length;
   };
 
-  let cum = -t.penalty;   // штраф сезонный: накопительный итог сходится с зачётом
+  let pts = 0;
   const body = rounds.map(r => {
     const bestOfRound = t.roundBest[r] || [];
     const got = t.roundPts[r] || 0;
     const rr = rankInRound(r);
-    cum += got;
+    pts += got;
+    const cum = pts - penaltyBy(t, r);   // штраф входит в итог со своего этапа
     const maxPos = state.roundMaxPos[r] || 40;
     const cells = bestOfRound.length
       ? bestOfRound.map(x => `<span class="pos-cell ${posClass(x.pos, maxPos)}">${x.pos}</span>`).join(' ')
