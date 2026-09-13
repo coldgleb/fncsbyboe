@@ -162,6 +162,10 @@ async function load() {
     ? computeChaseStandings(qualsRows)
     : computeStandings(qualsRows);
 
+  // Графики очков всегда считают «как если бы Чейза не было» — сбросов/скачков не показывают
+  state.races.chartStandings = computeStandings(racesRowsWithDuel);
+  state.quals.chartStandings = computeStandings(qualsRows);
+
   // Место в личном зачёте после каждого этапа — для графика в карточке пилота.
   // Граница как в renderRoundStandings: дуэли относятся к своему этапу
   state.rankHistory = {};

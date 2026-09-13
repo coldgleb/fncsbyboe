@@ -21,12 +21,15 @@ function lineChartOptions() {
   };
 }
 
+// Фамилия для подписи на графике — без метки «(i)» гостя
+const driverShortName = driver => driver.replace(/\s*\(i\)/g, '').split(' ').slice(-1)[0];
+
 function makeDataset(driver, standings, rounds, colorIdx) {
   const s = standings.find(x => x.driver === driver);
   if (!s) return null;
   let cum = 0;
   return {
-    label: driver.split(' ').slice(-1)[0],
+    label: driverShortName(driver),
     borderColor: COLORS[colorIdx % COLORS.length],
     backgroundColor: COLORS[colorIdx % COLORS.length] + '20',
     data: rounds.map(r => { cum += s.roundPts[r] || 0; return cum; }),
@@ -53,7 +56,7 @@ function drawChart(id, rounds, datasets) {
 
 function drawTeamChart(type) {
   const team = chartSel[type].team;
-  const { standings, rounds } = state[type];
+  const { chartStandings: standings, rounds } = state[type];
   const drivers = standings.filter(s => s.team === team);
   const datasets = drivers.map((s, i) => makeDataset(s.driver, standings, rounds, i));
   drawChart(`chart-team-${type}`, rounds, datasets);
@@ -61,7 +64,7 @@ function drawTeamChart(type) {
 
 function drawDriverChart(type) {
   const selected = chartSel[type].drivers;
-  const { standings, rounds } = state[type];
+  const { chartStandings: standings, rounds } = state[type];
   const datasets = selected.map((d, i) => makeDataset(d, standings, rounds, i));
   drawChart(`chart-drivers-${type}`, rounds, datasets);
 }
@@ -91,7 +94,7 @@ function updateMsLabel(type) {
   const sel = chartSel[type].drivers;
   const label = document.getElementById(`ms-label-${type}`);
   label.textContent = sel.length
-    ? sel.map(d => d.split(' ').slice(-1)[0]).join(', ')
+    ? sel.map(driverShortName).join(', ')
     : 'Выберите пилотов…';
 }
 
@@ -137,7 +140,7 @@ function onTeamChange(type) {
 }
 
 function initCharts(type) {
-  const teams = [...new Set(state[type].standings.map(s => s.team).filter(t => t && t !== '—'))].sort();
+  const teams = [...new Set(state[type].chartStandings.map(s => s.team).filter(t => t && t !== '—'))].sort();
   const sel = document.getElementById(`team-select-${type}`);
   sel.innerHTML = teams.map(t => `<option value="${t}">${t}</option>`).join('');
   chartSel[type].team = teams[0] || '';

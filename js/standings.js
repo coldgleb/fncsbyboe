@@ -251,7 +251,12 @@ function computeChaseStandings(rows) {
     const sd = seeds[s.driver];
     if (!sd) return s;
     const p = postMap[s.driver] || {};
-    return { ...s, ...p, driver: s.driver, total: sd.points + (p.total || 0), chaseSeed: sd.seed };
+    // wins/best — тай-брейк внутри Чейза (только очки после 26 этапа, как и total),
+    // но season* сохраняют то же самое за весь сезон — обе цифры нужны отдельно
+    return {
+      ...s, ...p, driver: s.driver, total: sd.points + (p.total || 0), chaseSeed: sd.seed,
+      seasonWins: s.wins, seasonBest: s.best, seasonBestPositions: [...s.positions].sort((a, b) => a - b),
+    };
   }).sort(standingsCmp);
 
   return renumber(merged.map(s => ({ ...s, bestPositions: [...s.positions].sort((a, b) => a - b) })));

@@ -1,8 +1,12 @@
 /* Личные зачёты: итоговая таблица, сортировка, сводная Пилот · Этап · Позиция */
 
 function driverTooltip(s) {
+  // У чейзовых пилотов wins/best — только за Чейз; seasonWins/seasonBest — за весь сезон
+  const winsLabel = s.seasonWins != null && s.seasonWins !== s.wins
+    ? `${s.wins} побед в Чейзе (${s.seasonWins} за сезон)`
+    : `${s.wins} побед`;
   return [
-    `Тай-брейк: ${s.wins} побед` + (s.firstWin !== Infinity ? ` · 1-я победа R${fmtRoundNum(s.firstWin)}` : '') + ` · ${s.sheetPts} очков за прогноз`,
+    `Тай-брейк: ${winsLabel}` + (s.firstWin !== Infinity ? ` · 1-я победа R${fmtRoundNum(s.firstWin)}` : '') + ` · ${s.sheetPts} очков за прогноз`,
     `Сред. позиция: ${avgPos(s)}`,
     `Топ-5: ${s.top5} · Топ-10: ${s.top10}`,
   ].join('\n');
@@ -16,10 +20,16 @@ const roundsOf = type => (/quals/i.test(type) ? state.quals : state.races).round
 
 const isIndep = team => team && team !== '—' && !state.coalitions?.has(team);
 
-// Реальный Чейз (очки сброшены на сетку), а не просто «топ-16 в зачёте»:
-// с 27 этапа — всегда, на 26-м — по переключателю. У независимых Чейза нет вообще.
-const isChaseMode = (type, n) => !type.startsWith('ind')
-  && (n > CHASE_START || (n === CHASE_START && state.chaseView[type] === 'chase'));
+// Реальный Чейз (очки сброшены на сетку): по умолчанию — с 27 этапа, до этого
+// обычный сезон; пользователь может явно переключить режим на любом этапе ≥26
+// через тумблер. У независимых Чейза нет вообще.
+const isChaseMode = (type, n) => {
+  if (type.startsWith('ind')) return false;
+  const v = state.chaseView[type];
+  if (v === 'regular') return false;
+  if (v === 'chase') return true;
+  return n > CHASE_START;
+};
 
 // Зачёт по состоянию после этапа n (дуэли относятся к своему этапу — граница до следующего целого)
 function standingsUpTo(type, n) {
@@ -132,10 +142,10 @@ function renderTable(type) {
     </select>
   </label>
   ${isLast ? '' : '<span class="upto-note">срез сезона: Чейз и тай-брейки — на этот этап</span>'}
-  ${!type.startsWith('ind') && at === CHASE_START ? `
+  ${!type.startsWith('ind') && at >= CHASE_START ? `
   <div class="round-toggle" style="margin-left:10px">
-    <button class="rtog-btn${state.chaseView[type] !== 'chase' ? ' rtog-active' : ''}" onclick="setChaseView('${type}','regular')">Регулярный сезон</button>
-    <button class="rtog-btn${state.chaseView[type] === 'chase' ? ' rtog-active' : ''}" onclick="setChaseView('${type}','chase')">Чейз</button>
+    <button class="rtog-btn${!isChase ? ' rtog-active' : ''}" onclick="setChaseView('${type}','regular')">Регулярный сезон</button>
+    <button class="rtog-btn${isChase ? ' rtog-active' : ''}" onclick="setChaseView('${type}','chase')">Чейз</button>
   </div>` : ''}
 </div>`;
   // Если в шапке карточки есть свой контейнер под этот блок — рендерим туда,
