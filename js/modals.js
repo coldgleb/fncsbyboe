@@ -33,10 +33,6 @@ function openDriver(driver, mode) {
     (r === 1 ? [...SPRINT_ROUNDS].reduce((s, c) => s + scorePts(qualPos[c], c), 0) : 0);
 
   const stat = (k, v) => `<div class="modal-stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
-  // У чейзовых пилотов wins/best — только за Чейз; seasonWins/seasonBest — за весь сезон.
-  // fmt форматирует сезонное значение так же, как основное (в v уже готовая строка/число)
-  const withSeason = (v, chase, season, fmt = x => x) =>
-    season != null && season !== chase ? `${v} <small>(сезон: ${fmt(season)})</small>` : v;
   const raceStats = [
     stat('Место · гонки', rs ? `#${rs.rank}` : '—'),
     stat('Очки · гонки', rs ? rs.total : '—'),
@@ -45,8 +41,8 @@ function openDriver(driver, mode) {
     stat('Топ-5 / 10 · гонки', rs ? `${rs.top5} / ${rs.top10}` : '—'),
     // С победами показываем их, без побед «Лучший финиш» информативнее
     rs && rs.wins > 0
-      ? stat('Победы', withSeason(rs.wins, rs.wins, rs.seasonWins))
-      : stat('Лучший финиш', rs && rs.best !== Infinity ? withSeason('P' + rs.best, rs.best, rs.seasonBest, x => 'P' + x) : '—'),
+      ? stat('Победы', rs.wins)
+      : stat('Лучший финиш', rs && rs.best !== Infinity ? 'P' + rs.best : '—'),
   ].join('');
   const qualStats = [
     stat('Место · квала', qs ? `#${qs.rank}` : '—'),
@@ -56,8 +52,8 @@ function openDriver(driver, mode) {
     stat('Топ-5 / 10 · квала', qs ? `${qs.top5} / ${qs.top10}` : '—'),
     // Есть поулы — показываем их, иначе информативнее лучший старт
     qs && qs.wins > 0
-      ? stat('Поулы', withSeason(qs.wins, qs.wins, qs.seasonWins))
-      : stat('Лучший старт', qs && qs.best !== Infinity ? withSeason('P' + qs.best, qs.best, qs.seasonBest, x => 'P' + x) : '—'),
+      ? stat('Поулы', qs.wins)
+      : stat('Лучший старт', qs && qs.best !== Infinity ? 'P' + qs.best : '—'),
   ].join('');
 
   const metricMark = r => state.metricQuals?.has(r)

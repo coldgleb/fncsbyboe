@@ -44,6 +44,7 @@
       <button class="tab-btn" data-tab="ind" onclick="switchTab('ind')">Независимые</button>
       <button class="tab-btn" data-tab="entries" onclick="switchTab('entries')">Метрика</button>
       <button class="tab-btn" data-tab="golub" onclick="switchTab('golub')">им. Голубочкина</button>
+      <button class="tab-btn" data-tab="calc" onclick="switchTab('calc')">Калькулятор</button>
     </div>
 
     <div id="tab-races" class="tab-panel active">
@@ -360,6 +361,10 @@
       </div>
     </div>
 
+    <div id="tab-calc" class="tab-panel">
+      <div id="calc-root"></div>
+    </div>
+
     <div class="modal-back" id="driver-modal" onclick="if(event.target===this)closeDriver()">
       <div class="modal" id="driver-modal-body"></div>
     </div>
@@ -375,6 +380,7 @@
   <script src="js/rounds.js"></script>
   <script src="js/modals.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/calc.js"></script>
 </body>
 
 </html>

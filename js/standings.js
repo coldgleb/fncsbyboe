@@ -247,19 +247,19 @@ function computeChaseStandings(rows) {
   const postMap = Object.fromEntries(
     computeStandings(rows.filter(r => r['Round'] > CHASE_START)).map(s => [s.driver, s]));
 
+  const empty = { wins: 0, firstWin: Infinity, posCounts: {} };
+  // Статистика (победы, финиши, топ-5/10, очки по этапам) — за весь сезон, как у всех.
+  // Меняются только total (сид + очки после 26 этапа) и тай-брейк: при равных очках
+  // в Чейзе решают результаты Чейза (chase), а не сезона
   const merged = base.map(s => {
     const sd = seeds[s.driver];
     if (!sd) return s;
-    const p = postMap[s.driver] || {};
-    // wins/best — тай-брейк внутри Чейза (только очки после 26 этапа, как и total),
-    // но season* сохраняют то же самое за весь сезон — обе цифры нужны отдельно
-    return {
-      ...s, ...p, driver: s.driver, total: sd.points + (p.total || 0), chaseSeed: sd.seed,
-      seasonWins: s.wins, seasonBest: s.best, seasonBestPositions: [...s.positions].sort((a, b) => a - b),
-    };
-  }).sort(standingsCmp);
+    const p = postMap[s.driver] || empty;
+    return { ...s, total: sd.points + (p.total || 0), chaseSeed: sd.seed, chase: p };
+  }).sort((a, b) => standingsCmp(
+    { ...(a.chase || a), total: a.total }, { ...(b.chase || b), total: b.total }));
 
-  return renumber(merged.map(s => ({ ...s, bestPositions: [...s.positions].sort((a, b) => a - b) })));
+  return renumber(merged);
 }
 
 // standings — зачёт, по которому определяется топ-16 (по очкам НА ВЫБРАННЫЙ этап,

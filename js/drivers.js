@@ -1,12 +1,11 @@
 /* Личные зачёты: итоговая таблица, сортировка, сводная Пилот · Этап · Позиция */
 
 function driverTooltip(s) {
-  // У чейзовых пилотов wins/best — только за Чейз; seasonWins/seasonBest — за весь сезон
-  const winsLabel = s.seasonWins != null && s.seasonWins !== s.wins
-    ? `${s.wins} побед в Чейзе (${s.seasonWins} за сезон)`
-    : `${s.wins} побед`;
+  // У чейзовых пилотов тай-брейк — по результатам Чейза (s.chase), статистика — за сезон
+  const tb = s.chase || s;
+  const winsLabel = s.chase ? `${tb.wins} побед в Чейзе (${s.wins} за сезон)` : `${s.wins} побед`;
   return [
-    `Тай-брейк: ${winsLabel}` + (s.firstWin !== Infinity ? ` · 1-я победа R${fmtRoundNum(s.firstWin)}` : '') + ` · ${s.sheetPts} очков за прогноз`,
+    `Тай-брейк: ${winsLabel}` + (tb.firstWin !== Infinity ? ` · 1-я победа R${fmtRoundNum(tb.firstWin)}` : '') + ` · ${s.sheetPts} очков за прогноз`,
     `Сред. позиция: ${avgPos(s)}`,
     `Топ-5: ${s.top5} · Топ-10: ${s.top10}`,
   ].join('\n');

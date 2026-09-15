@@ -164,6 +164,9 @@ const row = (pos, pts, dr = 10) => ({ 'Pos.': pos, Points: pts, DR1: dr, Driver:
   const byDriver27 = Object.fromEntries(withR27.map(s => [s.driver, s]));
   assert.strictEqual(byDriver27.D1.total, 2132, 'Чейз: сид + очки за 27 этап');
   assert.strictEqual(byDriver27.D18.total, 74, 'вне Чейза: сумма очков за все этапы, без сброса');
+  assert.strictEqual(byDriver27.D1.wins, 1, 'Чейз: победа в регулярном сезоне остаётся в статистике');
+  assert.strictEqual(byDriver27.D1.finishes, 2, 'Чейз: участие до Чейза учитывается');
+  assert.strictEqual(byDriver27.D1.chase.wins, 0, 'тай-брейк Чейза — только по его этапам');
 }
 
 
