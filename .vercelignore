@@ -1,0 +1,6 @@
+.env*
+.claude
+node_modules
+cloud
+db
+test.js
