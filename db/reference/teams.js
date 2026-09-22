@@ -40,17 +40,23 @@ function renderTeams() {
   document.getElementById('table-teams').innerHTML = teamTableHtml(state.teamStandings, state.teamFilter);
 }
 
+function renderIndTeams() {
+  document.getElementById('table-indTeams').innerHTML = teamTableHtml(state.indTeams, state.indTeamFilter);
+}
+
 // Полный зачёт, без учёта поискового фильтра на экране
-function exportTeamsXLSX() {
+function exportTeamsXLSX(indep) {
+  const list = indep ? state.indTeams : state.teamStandings;
   const starts = (t, kind) => t.drivers.reduce((n, d) => n + (state.attendance[kind][d]?.size || 0), 0);
-  downloadTableXLSX(state.teamStandings, [
+  downloadTableXLSX(list, [
     ['#', t => t.rank],
     ['Команда', t => t.team],
     ['Очки', t => t.total],
     ['Гонок', t => starts(t, 'races')],
     ['Квал.', t => starts(t, 'quals')],
     ['Пилотов', t => t.drivers.length],
-  ], 'Командный зачёт', `${exportSeriesLabel()} командный зачёт.xlsx`);
+  ], indep ? 'Независимые команды' : 'Командный зачёт',
+    `${exportSeriesLabel()} ${indep ? 'независимые команды' : 'командный зачёт'}.xlsx`);
 }
 
 function filterTeams(val) {
@@ -58,11 +64,21 @@ function filterTeams(val) {
   renderTeams();
 }
 
+function filterIndTeams(val) {
+  state.indTeamFilter = val;
+  renderIndTeams();
+}
+
 // Зачёт владельцев на этап считает сервер — тем же кодом, что раньше работал здесь
 
 function ownersAt() {
   const rounds = roundsOf('owners');
   return state.upTo.owners ?? rounds[rounds.length - 1];
+}
+
+// список этапов для селектора берём из зачёта гонок — он уже в сводке сезона
+function roundsOfOwners() {
+  return state.races.rounds.filter(r => !SPRINT_ROUNDS.has(r));
 }
 
 function setOwnersUpTo(val) {
@@ -172,10 +188,11 @@ function renderTeamPivot() {
   for (const t of teams) {
     html += `<tr class="${t.rank <= 3 ? 'rank-' + t.rank : ''}">
       <td class="driver-cell">${teamPlaceBadge(t)} ${teamLink(t.team)}${coalMark(t.team)}</td>`;
-    let cum = 0;   // накопленное со штрафом с его этапа — из базы (cumPts)
+    let pts = 0;
     for (const r of rounds) {
       const got = t.roundPts[r] || 0;
-      cum = t.cumPts[r] ?? cum;
+      pts += got;
+      const cum = pts - penaltyBy(t, r);   // штраф входит в итог со своего этапа
       html += `<td title="${roundFullName(r)}: ${got} очк. · всего ${cum}">${got || '<span class="pos-none">—</span>'}</td>`;
     }
     html += `<td class="total-cell">${penMark(t)}${t.total}</td></tr>`;
@@ -240,10 +257,7 @@ function renderTeamTab() {
     options: {
       indexAxis: 'y', responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${c.raw} pts` } } },
-      scales: {
-        x: { grid: { color: themeColor('--row-line') }, ticks: { color: themeColor('--muted') } },
-        y: { grid: { display: false }, ticks: { color: themeColor('--text2'), font: { size: 11 } } },
-      }
+      scales: { x: { grid: { color: '#ffffff0c' }, ticks: { color: '#666' } }, y: { grid: { display: false }, ticks: { color: '#bbb', font: { size: 11 } } } }
     }
   });
 
@@ -251,11 +265,11 @@ function renderTeamTab() {
   const lineId = 'chart-teams-line';
   if (state.charts[lineId]) state.charts[lineId].destroy();
   const datasets = standings.slice(0, 5).map((t, i) => {
-    let last = 0;   // накопленные очки со штрафом с его этапа — из базы (cumPts)
+    let pts = 0;   // штраф входит в кривую со своего этапа, а к концу она сходится с зачётом
     return {
       label: t.team,
       borderColor: COLORS[i], backgroundColor: COLORS[i] + '20',
-      data: rounds.map(r => (last = t.cumPts[r] ?? last)),
+      data: rounds.map(r => { pts += t.roundPts[r] || 0; return pts - penaltyBy(t, r); }),
       tension: 0.35, pointRadius: 3, fill: false,
     };
   });

@@ -1,45 +1,9 @@
 /* Зачёт им. Semen GOLUBOCHKIN */
 
 const GOLUB = 'Semen GOLUBOCHKIN';
-// по фамилии: в таблице имя пишут и как Semyon, и как Semen
-const isGolub = d => d.includes('GOLUBOCHKIN');
 
-function computeGolub(rows) {
-  const byRound = {};
-  for (const r of rows) {
-    const rnd = r['Round'];
-    if (rnd == null || r['Pos.'] == null || SPRINT_ROUNDS.has(rnd) || rnd === 0) continue;
-    (byRound[rnd] ||= []).push(r);
-  }
-
-  const rounds = [];
-  const info = {};   // этап → позиция Голубочкина и число участников
-  const map = {};
-  for (const rnd of Object.keys(byRound).map(Number).sort((a, b) => a - b)) {
-    const field = byRound[rnd];
-    const gp = field.find(r => isGolub(r['Driver'] || ''))?.['Pos.'];
-    if (gp == null) continue;  // этап без него в зачёт не идёт
-    // финишировал последним — очков не набрал никто, колонка была бы пустой
-    if (!field.some(x => x['Pos.'] > gp && x['Driver'] && !isGolub(x['Driver']) && !isGuestDriver(x['Driver']))) continue;
-    rounds.push(rnd);
-    info[rnd] = { gp, n: field.length };
-    for (const r of field) {
-      const d = r['Driver'], pos = r['Pos.'];
-      if (!d || isGolub(d) || isGuestDriver(d)) continue;
-      const g = map[d] ||= { driver: d, team: teamOf(d), total: 0, cells: {} };
-      // считаем участников, а не разницу позиций: в протоколе бывают пропуски в нумерации
-      const pts = pos <= gp ? 0
-        : field.reduce((n, x) => n + (x['Pos.'] > gp && x['Pos.'] <= pos ? 1 : 0), 0);
-      g.cells[rnd] = { pts, gp, pos };
-      g.total += pts;
-    }
-  }
-  // ни разу не финишировал ниже — в зачёте не участвует
-  const drivers = Object.values(map).filter(g => g.total > 0)
-    .sort((a, b) => b.total - a.total)
-    .map((g, i) => ({ ...g, rank: i + 1 }));
-  return { rounds, info, drivers };
-}
+/* Сам зачёт (кто сколько участников «между ним и тобой», какие этапы идут в счёт)
+   считается в базе, api.golub. Здесь — только показ. */
 
 function golubClass(pts) {
   if (pts === 0) return 'pos-none';

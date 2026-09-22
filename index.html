@@ -5,6 +5,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NASCAR Fantasy Championship</title>
+  <meta name="theme-color" content="#0c0e12">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+  <script>
+    /* тема ставится до первой отрисовки, чтобы не было вспышки */
+    try { var t = localStorage.getItem('theme'); } catch (e) { }
+    document.documentElement.dataset.theme = t || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
   <link rel="stylesheet" href="css/style.css">
@@ -12,40 +23,48 @@
 
 <body>
 
-  <header>
-    <div style="font-size:2rem">🏁</div>
-    <div>
-      <h1>NASCAR FANTASY CHAMPIONSHIP</h1>
-      <small id="header-meta">Загрузка данных…</small>
-    </div>
-    <select class="chart-select" id="year-select" style="margin-left:auto;max-width:100px" title="Сезон"
-      onchange="switchYear(this.value)"></select>
-    <div class="round-toggle" title="Дивизион">
-      <button class="rtog-btn div-btn" data-div="star" onclick="switchDivision('star')">Star</button>
-      <button class="rtog-btn div-btn" data-div="open" onclick="switchDivision('open')">Open</button>
-    </div>
-    <button class="page-btn" onclick="init()" title="Перезагрузить данные">⟳ Обновить</button>
-  </header>
-
-  <main>
-    <div id="kpi-grid" class="kpi-grid">
-      <div class="kpi-card">
-        <div class="loading-state">
-          <div class="spinner"></div> Загрузка…
+  <header class="hero">
+    <div class="wrap">
+      <div class="hero-top">
+        <p class="eyebrow">Be on Edge &middot; Fantasy NASCAR Cup Series</p>
+        <div class="toolbar-tools">
+          <select class="chart-select w-narrow" id="year-select" title="Сезон" onchange="switchYear(this.value)"></select>
+          <div class="round-toggle" title="Дивизион">
+            <button class="rtog-btn div-btn" data-div="star" onclick="switchDivision('star')">Star</button>
+            <button class="rtog-btn div-btn" data-div="open" onclick="switchDivision('open')">Open</button>
+          </div>
+          <button class="page-btn" id="theme-btn" onclick="toggleTheme()" title="Светлая / тёмная тема"></button>
+          <button class="page-btn" onclick="refreshData()" title="Загрузить свежие данные с листов">⟳ Обновить</button>
+        </div>
+      </div>
+      <h1>NASCAR Fantasy<br>Championship</h1>
+      <p class="lead" id="header-meta">Загрузка данных…</p>
+      <div id="kpi-grid" class="kpi-grid">
+        <div class="kpi-card">
+          <div class="loading-state">
+            <div class="spinner"></div> Загрузка…
+          </div>
         </div>
       </div>
     </div>
+  </header>
 
-    <div class="tabs">
-      <button class="tab-btn active" data-tab="races" onclick="switchTab('races')">Гонки</button>
-      <button class="tab-btn" data-tab="quals" onclick="switchTab('quals')">Квалификации</button>
-      <button class="tab-btn" data-tab="rounds" onclick="switchTab('rounds')">По этапам</button>
-      <button class="tab-btn" data-tab="teams" onclick="switchTab('teams')">Команды</button>
-      <button class="tab-btn" data-tab="ind" onclick="switchTab('ind')">Независимые</button>
-      <button class="tab-btn" data-tab="entries" onclick="switchTab('entries')">Метрика</button>
-      <button class="tab-btn" data-tab="golub" onclick="switchTab('golub')">им. Голубочкина</button>
-      <button class="tab-btn" data-tab="calc" onclick="switchTab('calc')">Калькулятор</button>
+  <div class="toolbar">
+    <div class="wrap toolbar-inner">
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="races" onclick="switchTab('races')">Гонки</button>
+        <button class="tab-btn" data-tab="quals" onclick="switchTab('quals')">Квалификации</button>
+        <button class="tab-btn" data-tab="rounds" onclick="switchTab('rounds')">По этапам</button>
+        <button class="tab-btn" data-tab="teams" onclick="switchTab('teams')">Команды</button>
+        <button class="tab-btn" data-tab="owners" onclick="switchTab('owners')">Владельцы</button>
+        <button class="tab-btn" data-tab="entries" onclick="switchTab('entries')">Командная метрика</button>
+        <button class="tab-btn" data-tab="golub" onclick="switchTab('golub')">им. Голубочкина</button>
+        <button class="tab-btn" data-tab="calc" onclick="switchTab('calc')">Калькулятор</button>
+      </div>
     </div>
+  </div>
+
+  <main>
 
     <div id="tab-races" class="tab-panel active">
       <div class="charts-grid">
@@ -87,10 +106,10 @@
         <div id="table-races"></div>
       </div>
       <div class="pivot-card">
-        <h3>Развёрнутая таблица — Пилот · Этап · Позиция</h3>
-        <div class="pivot-body" id="pivot-body-races">
-          <div class="pivot-controls">
-            <input class="pivot-search" type="search" placeholder="Поиск по пилоту / команде…"
+        <div class="table-header">
+          <h3>Пилот · Этап · Позиция</h3>
+          <div class="table-controls">
+            <input class="search-input" type="search" placeholder="Поиск по пилоту / команде…"
               oninput="filterPivot('races', this.value)">
             <button class="page-btn" onclick="exportProtocolXLSX('races')">⇩ Excel</button>
             <div class="pivot-legend">
@@ -114,17 +133,21 @@
               </div>
             </div>
           </div>
+        </div>
+        <div class="pivot-body" id="pivot-body-races">
           <div class="pivot-scroll" id="pivot-races"></div>
         </div>
       </div>
       <div class="pivot-card">
-        <h3 title="Позиция в квалификации минус позиция в гонке. Плюс — отыграл, минус — потерял. Дуэли не учитываются">
-          Отыгранные / потерянные позиции за сезон</h3>
-        <div class="pivot-body">
-          <div class="pivot-controls">
-            <input class="pivot-search" type="search" placeholder="Поиск по пилоту / команде…"
+        <div class="table-header">
+          <h3 title="Позиция в квалификации минус позиция в гонке. Плюс — отыграл, минус — потерял. Дуэли не учитываются">
+            Отыгранные / потерянные позиции за сезон</h3>
+          <div class="table-controls">
+            <input class="search-input" type="search" placeholder="Поиск по пилоту / команде…"
               oninput="filterGains(this.value)">
           </div>
+        </div>
+        <div class="pivot-body">
           <div class="pivot-scroll" id="pivot-gains"></div>
         </div>
       </div>
@@ -170,10 +193,10 @@
         <div id="table-quals"></div>
       </div>
       <div class="pivot-card">
-        <h3>Развёрнутая таблица — Пилот · Этап · Позиция</h3>
-        <div class="pivot-body" id="pivot-body-quals">
-          <div class="pivot-controls">
-            <input class="pivot-search" type="search" placeholder="Поиск по пилоту / команде…"
+        <div class="table-header">
+          <h3>Пилот · Этап · Позиция</h3>
+          <div class="table-controls">
+            <input class="search-input" type="search" placeholder="Поиск по пилоту / команде…"
               oninput="filterPivot('quals', this.value)">
             <button class="page-btn" onclick="exportProtocolXLSX('quals')">⇩ Excel</button>
             <div class="pivot-legend">
@@ -197,6 +220,8 @@
               </div>
             </div>
           </div>
+        </div>
+        <div class="pivot-body" id="pivot-body-quals">
           <div class="pivot-scroll" id="pivot-quals"></div>
         </div>
       </div>
@@ -218,25 +243,28 @@
           <div class="table-controls">
             <input class="search-input" type="search" placeholder="Поиск по пилоту / команде…"
               oninput="filterTeams(this.value)">
-            <button class="page-btn" onclick="exportTeamsXLSX(false)">⇩ Excel</button>
+            <button class="page-btn" onclick="exportTeamsXLSX()">⇩ Excel</button>
           </div>
         </div>
         <div id="table-teams"></div>
       </div>
       <div class="pivot-card">
-        <h3 title="Очки, набранные за этап (двумя зачётными результатами). В тултипе ячейки — накопительный итог. Клик по заголовку — сортировка">Очки команды за каждый этап</h3>
-        <div class="pivot-body">
-          <div class="pivot-controls">
-            <input class="pivot-search" type="search" placeholder="Поиск команды…" oninput="filterTeamPivot(this.value)">
+        <div class="table-header">
+          <h3 title="Очки, набранные за этап (двумя зачётными результатами). В тултипе ячейки — накопительный итог. Клик по заголовку — сортировка">Очки команды за каждый этап</h3>
+          <div class="table-controls">
+            <input class="search-input" type="search" placeholder="Поиск команды…" oninput="filterTeamPivot(this.value)">
           </div>
+        </div>
+        <div class="pivot-body">
           <div class="pivot-scroll" id="pivot-teams"></div>
+          <div class="pivot-note" id="pivot-teams-note"></div>
         </div>
       </div>
       <div class="pivot-card">
-        <h3 title="Какие места пошли в зачёт команде на каждом этапе (два лучших результата)">Зачётные места команды по этапам</h3>
-        <div class="pivot-body">
-          <div class="pivot-controls">
-            <input class="pivot-search" type="search" placeholder="Поиск команды…" oninput="filterTeamPosPivot(this.value)">
+        <div class="table-header">
+          <h3 title="Какие места пошли в зачёт команде на каждом этапе (два лучших результата)">Зачётные места команды по этапам</h3>
+          <div class="table-controls">
+            <input class="search-input" type="search" placeholder="Поиск команды…" oninput="filterTeamPosPivot(this.value)">
             <div class="pivot-legend">
               <div class="legend-item"><div class="legend-dot pos-p1"></div> P1</div>
               <div class="legend-item"><div class="legend-dot pos-gray"></div> P2–5</div>
@@ -245,55 +273,25 @@
               <div class="legend-item"><div class="legend-dot pos-purple"></div> P21–max</div>
             </div>
           </div>
+        </div>
+        <div class="pivot-body">
           <div class="pivot-scroll" id="pivot-teams-pos"></div>
         </div>
       </div>
-      <div class="table-card" style="margin-top:14px">
+    </div>
+
+    <div id="tab-owners" class="tab-panel">
+      <div class="table-card">
         <div class="table-header">
           <h3>Зачёт владельцев — по номеру машины</h3>
           <div class="table-controls">
+            <div id="upto-owners"></div>
             <input class="search-input" type="search" placeholder="Поиск по номеру / пилоту…"
               oninput="filterOwners(this.value)">
             <button class="page-btn" onclick="exportOwnersXLSX()">⇩ Excel</button>
           </div>
         </div>
         <div id="table-owners"></div>
-      </div>
-    </div>
-
-    <div id="tab-ind" class="tab-panel">
-      <div class="table-card">
-        <div class="table-header">
-          <h3>Зачёт независимых команд</h3>
-          <div class="table-controls">
-            <input class="search-input" type="search" placeholder="Поиск по пилоту / команде…"
-              oninput="filterIndTeams(this.value)">
-            <button class="page-btn" onclick="exportTeamsXLSX(true)">⇩ Excel</button>
-          </div>
-        </div>
-        <div id="table-indTeams"></div>
-      </div>
-      <div class="table-card" style="margin-top:14px">
-        <div class="table-header">
-          <h3>Независимые — Гонки</h3>
-          <div class="table-controls">
-            <input class="search-input" type="search" placeholder="Поиск по гонщику / команде…"
-              oninput="filterTable('indRaces', this.value)">
-            <button class="page-btn" onclick="exportStandingsXLSX('indRaces')">⇩ Excel</button>
-          </div>
-        </div>
-        <div id="table-indRaces"></div>
-      </div>
-      <div class="table-card" style="margin-top:14px">
-        <div class="table-header">
-          <h3>Независимые — Квалификации</h3>
-          <div class="table-controls">
-            <input class="search-input" type="search" placeholder="Поиск по гонщику / команде…"
-              oninput="filterTable('indQuals', this.value)">
-            <button class="page-btn" onclick="exportStandingsXLSX('indQuals')">⇩ Excel</button>
-          </div>
-        </div>
-        <div id="table-indQuals"></div>
       </div>
     </div>
 
@@ -313,30 +311,33 @@
     <div id="tab-golub" class="tab-panel">
       <div class="round-bar">
         <label class="round-label"
-          title="Очки за этап = сколько участников ниже Семена Голубочкина, но не ниже тебя. Выше него — 0">Зачёт им.
-          Голубочкина</label>
+          title="Очки за этап = сколько участников ниже Семена Голубочкина, но не ниже тебя. Выше него — 0">Зачёт им. Голубочкина</label>
         <div class="round-toggle">
           <button class="rtog-btn rtog-active" data-gv="races" onclick="setGolubView('races')">Гонки</button>
           <button class="rtog-btn" data-gv="quals" onclick="setGolubView('quals')">Квалификации</button>
         </div>
       </div>
       <div class="pivot-card" id="golub-card-races">
-        <h3>Гонки — участников между ним и тобой</h3>
-        <div class="pivot-body">
-          <div class="pivot-controls">
-            <input class="pivot-search" type="search" placeholder="Поиск по пилоту / команде…"
+        <div class="table-header">
+          <h3>Гонки — участников между ним и тобой</h3>
+          <div class="table-controls">
+            <input class="search-input" type="search" placeholder="Поиск по пилоту / команде…"
               oninput="filterGolub('races', this.value)">
           </div>
+        </div>
+        <div class="pivot-body">
           <div class="pivot-scroll" id="golub-races"></div>
         </div>
       </div>
       <div class="pivot-card" id="golub-card-quals" style="display:none">
-        <h3 title="Квалификации по метрике не учитываются">Квалификации — участников между ним и тобой</h3>
-        <div class="pivot-body">
-          <div class="pivot-controls">
-            <input class="pivot-search" type="search" placeholder="Поиск по пилоту / команде…"
+        <div class="table-header">
+          <h3 title="Квалификации по метрике не учитываются">Квалификации — участников между ним и тобой</h3>
+          <div class="table-controls">
+            <input class="search-input" type="search" placeholder="Поиск по пилоту / команде…"
               oninput="filterGolub('quals', this.value)">
           </div>
+        </div>
+        <div class="pivot-body">
           <div class="pivot-scroll" id="golub-quals"></div>
         </div>
       </div>
@@ -345,7 +346,7 @@
     <div id="tab-rounds" class="tab-panel">
       <div class="round-bar">
         <label class="round-label">Этап</label>
-        <select class="chart-select" id="round-select" onchange="onRoundChange()" style="max-width:320px"></select>
+        <select class="chart-select w-wide" id="round-select" onchange="onRoundChange()"></select>
         <div class="round-toggle" id="round-toggle"></div>
       </div>
       <div class="table-card">
@@ -370,8 +371,9 @@
     </div>
   </main>
 
+  <script src="js/logic.gen.js"></script>
   <script src="js/core.js"></script>
-  <script src="js/standings.js"></script>
+  <script src="js/local-api.js"></script>
   <script src="js/charts.js"></script>
   <script src="js/teams.js"></script>
   <script src="js/drivers.js"></script>

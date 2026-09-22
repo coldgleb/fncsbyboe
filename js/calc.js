@@ -22,19 +22,26 @@ const num=x=>x==null?'':String(x);
 function normName(s){return (s||'').toLowerCase().replace(/[^a-zа-я0-9]+/gi,' ').trim();}
 
 // ===================== STORAGE =====================
-const STORE_KEY='nascar_pred_v5';
-async function loadState(){try{const r=localStorage.getItem(STORE_KEY);return r?JSON.parse(r):null;}catch(e){return null;}}
-async function saveState(s){try{localStorage.setItem(STORE_KEY,JSON.stringify(s));}catch(e){}}
+// Два калькулятора — Open и Star — со своими участниками и сохранением.
+// У Open ключ прежний, чтобы уже сохранённые прогнозы не потерялись
+let calcKind=(()=>{try{const k=localStorage.getItem('fncs_calc_kind');if(k==='open'||k==='star')return k;}catch(e){}return site.division==='star'?'star':'open';})();
+const storeKey=()=>calcKind==='star'?'nascar_pred_star_v1':'nascar_pred_v5';
+const isStar=()=>calcKind==='star';
+async function loadState(){try{const r=localStorage.getItem(storeKey());return r?JSON.parse(r):null;}catch(e){return null;}}
+async function saveState(s){try{localStorage.setItem(storeKey(),JSON.stringify(s));}catch(e){}}
 
-function newParticipant(name){return {name:name||'Участник',carNum:'',team:'',drivers:[null,null,null,null],qualResultPlace:'',predCaution:'',predRet:'',mfg:''};}
+const DUEL_COUNT=5;
+function newParticipant(name){return {name:name||'Участник',carNum:'',team:'',drivers:[null,null,null,null],qualResultPlace:'',predCaution:'',predRet:'',mfg:'',duelPicks:Array(DUEL_COUNT).fill(null)};}
 const DEFAULT={
   raceName:'', weekendRaw:'', feedRaw:'', pointsRaw:'',
   year:'2026', series:'1', raceId:'',
   qualRoster:[], raceRoster:[], pointsByNum:{}, raceLists:{},
   cautionSegmentsRace:null, stageNumRace:null,
   weekendCautions:null, weekendRet:null,
-  sortByScore:false,                        // сортировка таблицы по итоговым очкам (по умолчанию выкл)
+  sort:{key:null,dir:'desc'},               // сортировка таблицы по клику на заголовок; key null — исходный порядок
+  team:'',                                  // выбранная команда — её пилоты подставлены в участники
   actualCaution:'', actualRet:'',           // shared actuals (auto from feed, editable)
+  duelPairs:Array.from({length:DUEL_COUNT},()=>[null,null]),   // Star: пары пилотов этапа (номера машин), общие на всех
   participants:[newParticipant('Участник 1'),newParticipant('Участник 2')]
 };
 let state=null;
@@ -215,6 +222,21 @@ function effRet(){ return state.actualRet!==''?+state.actualRet:(autoRetirements
 // best finish for a manufacturer (race feed)
 function mfgBestFinish(mfgCode){ if(!mfgCode||!state.raceRoster.length)return null; let best=null; state.raceRoster.forEach(d=>{if(d.mfg===mfgCode&&d.running>0){if(best===null||d.running<best)best=d.running;}}); return best; }
 
+// Star, дуэли: +2 за пару, если выбранный пилот выше соперника по месту (placeKey — 'qualPlace' в квале,
+// 'racePlace' в гонке). Пара не задана, выбор не из пары или у кого-то нет места — пара не считается
+function duelWinner(pair,placeKey){
+  if(!pair[0]||!pair[1]||pair[0]===pair[1])return null;
+  const a=driverData(pair[0])?.[placeKey], b=driverData(pair[1])?.[placeKey];
+  return a>0&&b>0?(a<b?pair[0]:pair[1]):null;
+}
+function duelPts(p,placeKey){
+  if(!isStar())return 0;
+  return (state.duelPairs||[]).reduce((sum,pair,i)=>{
+    const pick=p.duelPicks?.[i];
+    return pick&&pick===duelWinner(pair,placeKey)?sum+2:sum;
+  },0);
+}
+
 // ===================== PER-PARTICIPANT SCORING =====================
 // Competition ranking (1-2-2-4): ties share the same rank
 function computeRanks(scores){
@@ -226,7 +248,8 @@ function computeAllScores(participants){
   const ec=effCaution(), er=effRet();
   // Pass 1: qual sums + driver rows
   const pass1=participants.map(p=>{
-    let qualSum=0;
+    const dueQual=duelPts(p,'qualPlace');
+    let qualSum=dueQual;   // в Star DUE квалы входит в очки квалы (лист Star Quals), значит и в ранг
     const rows=p.drivers.map(numv=>{
       const d=driverData(numv);
       const qp=d&&d.qualPlace?d.qualPlace:'';
@@ -236,13 +259,13 @@ function computeAllScores(participants){
         racePlace:d&&d.racePlace?d.racePlace:'',
         racePts:(d&&d.points!=null)?d.points:''};
     });
-    return {qualSum,rows};
+    return {qualSum,rows,dueQual};
   });
   // Pass 2: rank participants by qual score → qual result points
   const qualRanks=computeRanks(pass1.map(q=>q.qualSum));
   // Pass 3: full scores
   return participants.map((p,i)=>{
-    const {qualSum,rows}=pass1[i];
+    const {qualSum,rows,dueQual}=pass1[i];
     // место с листа Open Quals, если этап выбран и участник в протоколе; иначе — ранг по сумме квал-очков
     const sheetPlace=sheetQualPlace(p);
     const qualRank=sheetPlace??qualRanks[i];
@@ -254,8 +277,9 @@ function computeAllScores(participants){
     const retPts=(p.predRet===''||er==null)?0:diffPoints(p.predRet-er);
     const mfgFin=mfgBestFinish(p.mfg);
     const mPts=mfgPoints(mfgFin);
-    const raceTotal=raceDriverSum+cauPts+retPts+mPts;
-    return {rows,qualSum,qualRank,qualFromSheet:sheetPlace!=null,qrPts,raceDriverSum,cauPts,retPts,mfgFin,mPts,raceTotal,
+    const dueRace=duelPts(p,'racePlace');
+    const raceTotal=raceDriverSum+cauPts+retPts+mPts+dueRace;
+    return {rows,qualSum,qualRank,qualFromSheet:sheetPlace!=null,qrPts,raceDriverSum,cauPts,retPts,mfgFin,mPts,dueQual,dueRace,raceTotal,
       grand:qrPts+raceTotal,ec,er};
   });
 }
@@ -307,16 +331,44 @@ function mfgSelect(pi){
     ...['Chv','Frd','Tyt'].map(m=>el('option',{value:m,...(cur===m?{selected:'selected'}:{})},MFG_NAMES[m])));
 }
 
+// Столбец → значение для сортировки по клику на заголовок (по посчитанным очкам, не по тексту ячеек)
+const SORT_KEYS={
+  name:p=>p.name||'',
+  ...Object.fromEntries([0,1,2,3].map(i=>['drv'+i,(p,s)=>s.rows[i].racePts===''?null:+s.rows[i].racePts])),
+  qrank:(p,s)=>p.qualResultPlace!==''&&!isNaN(+p.qualResultPlace)?+p.qualResultPlace:s.qualRank,
+  cau:(p,s)=>s.cauPts, ret:(p,s)=>s.retPts, mfg:(p,s)=>s.mPts, duel:(p,s)=>s.dueQual+s.dueRace,
+  qual:(p,s)=>s.qualSum, race:(p,s)=>s.raceTotal, total:(p,s)=>s.grand,
+};
+const SORT_ASC=new Set(['name','qrank']);   // первый клик — по возрастанию; остальные — очки, сначала больше
+
 // ===================== RENDER =====================
 function render(){
   const root=document.getElementById('calc-root');root.innerHTML='';
-  root.appendChild(openDatalist());
+  root.appendChild(el('div',{class:'round-bar'},el('label',{class:'round-label'},'Калькулятор'),
+    el('div',{class:'round-toggle'},...['open','star'].map(k=>
+      el('button',{class:'rtog-btn'+(calcKind===k?' rtog-active':''),onclick:()=>switchCalc(k)},DIVISIONS[k].label)))));
   const P=state.participants;
   const ec=effCaution(),er=effRet();
 
   const scores=computeAllScores(P);
   let ranked=P.map((_,i)=>i);
-  if(state.sortByScore)ranked=ranked.slice().sort((a,b)=>scores[b].grand-scores[a].grand);
+  const sortFn=SORT_KEYS[state.sort?.key];
+  if(sortFn){
+    const k=state.sort.dir==='asc'?1:-1;
+    ranked.sort((a,b)=>{
+      const va=sortFn(P[a],scores[a]),vb=sortFn(P[b],scores[b]);
+      // пустые всегда внизу — и при возрастании, и при убывании
+      if(va==null||va===''||vb==null||vb==='')return (va==null||va==='')===(vb==null||vb==='')?0:(va==null||va==='')?1:-1;
+      return typeof va==='string'?k*va.localeCompare(vb,'ru'):k*(va-vb);
+    });
+  }
+  const sortTh=(key,cls,label,title,...extra)=>el('th',{class:cls,'data-k':key,title,onclick:()=>{
+      const cur=state.sort||(state.sort={key:null,dir:'desc'});
+      if(key==='#'){cur.key=null;}
+      else if(cur.key===key){cur.dir=cur.dir==='asc'?'desc':'asc';}
+      else{cur.key=key;cur.dir=SORT_ASC.has(key)?'asc':'desc';}
+      saveState(state);render();
+    }},label,...extra,state.sort?.key===key?el('span',{class:'sort-arrow'},state.sort.dir==='asc'?' ▲':' ▼'):null);
 
   // header
   root.appendChild(el('div',{class:'hd'},el('div',{class:'flag'}),
@@ -324,6 +376,7 @@ function render(){
       el('input',{class:'race',placeholder:'Название гонки',value:state.raceName,oninput:e=>{state.raceName=e.target.value;saveState(state);}}))));
 
   renderSources(root);
+  if(isStar())renderDuelPairs(root);
 
   // ---- participants table ----
   const card=el('section',{class:'card tablecard'});
@@ -333,10 +386,6 @@ function render(){
   sumbar.appendChild(el('span',{class:'sumitem'},'Участников: '+P.length));
   if(ec!=null)sumbar.appendChild(el('span',{class:'sumitem fact-hd'},'Жёлтые: '+ec));
   if(er!=null)sumbar.appendChild(el('span',{class:'sumitem fact-hd'},'Сходы: '+er));
-  sumbar.appendChild(el('label',{class:'sortgl',title:'Сортировать строки по итоговым очкам'},
-    el('input',{type:'checkbox',...(state.sortByScore?{checked:'checked'}:{}),
-      onchange:e=>{state.sortByScore=e.target.checked;saveState(state);render();}}),
-    el('span',{},'Сортировка по очкам')));
   card.appendChild(sumbar);
 
   const wrap=el('div',{class:'tscroll'});
@@ -344,19 +393,17 @@ function render(){
 
   // thead
   const htr=el('tr',{},
-    el('th',{class:'th-rank'},'#'),
-    el('th',{class:'th-name'},'Имя'),
-    el('th',{class:'th-drv'},'Пилот 1'),
-    el('th',{class:'th-drv'},'Пилот 2'),
-    el('th',{class:'th-drv'},'Пилот 3'),
-    el('th',{class:'th-drv'},'Пилот 4'),
-    el('th',{class:'th-n',title:'Автоматический ранг в квалификации → очки'},'Ркв.'),
-    el('th',{class:'th-n',title:'Жёлтые флаги'+(ec!=null?' (факт '+ec+')':'')},'Жёлт.',ec!=null?el('span',{class:'fact-hd'},' '+ec):null),
-    el('th',{class:'th-n',title:'Сходы'+(er!=null?' (факт '+er+')':'')},'Сходы',er!=null?el('span',{class:'fact-hd'},' '+er):null),
-    el('th',{class:'th-mfg'},'Произв.'),
-    el('th',{class:'th-pts',title:'Очки за квалификацию'},'Кв.'),
-    el('th',{class:'th-pts',title:'Очки за гонку'},'Гонка'),
-    el('th',{class:'th-total'},'Итого'),
+    sortTh('#','th-rank','#','Исходный порядок'),
+    sortTh('name','th-name','Имя'),
+    ...[0,1,2,3].map(i=>sortTh('drv'+i,'th-drv','Пилот '+(i+1),'Сортировка по очкам пилота')),
+    sortTh('qrank','th-n','Ркв.','Место в квалификации → очки'),
+    sortTh('cau','th-n','Жёлт.','Жёлтые флаги'+(ec!=null?' (факт '+ec+')':''),ec!=null?el('span',{class:'fact-hd'},' '+ec):null),
+    sortTh('ret','th-n','Сходы','Сходы'+(er!=null?' (факт '+er+')':''),er!=null?el('span',{class:'fact-hd'},' '+er):null),
+    isStar()?sortTh('duel','th-duel','Дуэли','Кто в паре выше: +2 за угаданную пару в квале и в гонке'):null,
+    sortTh('mfg','th-mfg','Произв.'),
+    sortTh('qual','th-pts','Кв.','Очки за квалификацию'),
+    sortTh('race','th-pts','Гонка','Очки за гонку'),
+    sortTh('total','th-total','Итого'),
     el('th',{class:'th-del'})
   );
   tbl.appendChild(el('thead',{},htr));
@@ -371,9 +418,7 @@ function render(){
 
     // name
     const ntd=el('td',{class:'td-name'});
-    ntd.appendChild(el('input',{class:'pname-c',value:p.name,list:'calc-open-drivers',
-      oninput:e=>{p.name=e.target.value;saveState(state);},
-      onchange:e=>{p.name=e.target.value;fillFromOpen(p);saveState(state);render();}}));
+    ntd.appendChild(nameCombo(p));
     ntd.appendChild(el('div',{class:'pmeta'},
       el('input',{class:'pnum-c',placeholder:'#',value:p.carNum,title:'Номер машины',
         oninput:e=>{p.carNum=e.target.value;saveState(state);}}),
@@ -417,6 +462,8 @@ function render(){
       onchange:e=>{p.predRet=e.target.value;saveState(state);render();}}));
     if(s.retPts)rtd.appendChild(el('div',{class:'bpts-s'},'+'+s.retPts));
     tr.appendChild(rtd);
+
+    if(isStar())tr.appendChild(duelCell(p,s));
 
     // mfg
     const mtd=el('td',{class:'td-mfg'});
@@ -462,6 +509,7 @@ function exportData(){
     _type:'nascar_pred', _version:6,
     raceName:state.raceName, year:state.year, series:state.series, raceId:state.raceId,
     actualCaution:state.actualCaution, actualRet:state.actualRet,
+    duelPairs:state.duelPairs,
     participants:state.participants
   };
   download(`${safeName()}_прогнозы.json`,JSON.stringify(payload,null,2),'application/json');
@@ -478,14 +526,15 @@ function resultRows(round){
     // 1-2-2-4: равные суммы делят место
     const pos=order.findIndex(j=>scores[j].grand===s.grand)+1;
     return [round,pos,dash(p.carNum),dash(p.name),dash(p.team),dash(MFG_SHORT[p.mfg]),
-      s.qrPts,...s.rows.map(r=>+r.racePts||0),s.cauPts,s.retPts,s.mPts,s.grand].join('\t');
+      s.qrPts,...s.rows.map(r=>+r.racePts||0),s.cauPts,s.retPts,s.mPts,...(isStar()?[s.dueRace]:[]),s.grand].join('\t');
   });
 }
 function exportResults(){
   const round=prompt('Номер этапа (Round):',state.round||'1');
   if(round===null)return;
   state.round=round; saveState(state);
-  const head='Round\tPos.\t#\tDriver\tTeam\tM.\tQL\tDR1\tDR2\tDR3\tDR4\tCAU\tRET\tMN\tPoints';
+  // у Star после MN идёт DUE — как на листе Star Races
+  const head='Round\tPos.\t#\tDriver\tTeam\tM.\tQL\tDR1\tDR2\tDR3\tDR4\tCAU\tRET\tMN\t'+(isStar()?'DUE\t':'')+'Points';
   download(`${safeName()}_R${round}.tsv`,'﻿'+[head,...resultRows(round)].join('\r\n'),'text/tab-separated-values');
 }
 function importData(){
@@ -504,6 +553,8 @@ function importData(){
         if(d.raceId!=null)state.raceId=d.raceId;
         if(d.actualCaution!=null)state.actualCaution=d.actualCaution;
         if(d.actualRet!=null)state.actualRet=d.actualRet;
+        if(Array.isArray(d.duelPairs))state.duelPairs=Array.from({length:DUEL_COUNT},(_,i)=>
+          Array.isArray(d.duelPairs[i])?[d.duelPairs[i][0]??null,d.duelPairs[i][1]??null]:[null,null]);
         // Сброс результатов — данные загрузятся автоматически по raceId
         state.weekendRaw=''; state.feedRaw=''; state.pointsRaw='';
         state.qualRoster=[]; state.raceRoster=[]; state.pointsByNum={};
@@ -526,6 +577,7 @@ function importData(){
           base.predCaution=p.predCaution??'';
           base.predRet=p.predRet??'';
           base.mfg=normMfg(p.mfg);   // принимаем и «Chevrolet»/«Chevy»/«Toyota»
+          if(Array.isArray(p.duelPicks))base.duelPicks=Array.from({length:DUEL_COUNT},(_,i)=>p.duelPicks[i]??null);
           return base;
         });
         saveState(state); render();
@@ -590,6 +642,7 @@ function renderSources(root){
     el('button',{class:'rlbtn',title:'Перезагрузить список гонок',onclick:loadRaceList},'⟳')));
   params.appendChild(raceGrp);
   params.appendChild(roundSelect());
+  params.appendChild(teamSelect());
   src.appendChild(params);
 
   const ready=!!state.raceId;
@@ -622,55 +675,181 @@ function renderSources(root){
   root.appendChild(src);
 }
 
-/* ── Участники с листа Open Races: имя → #, команда, производитель по последнему этапу ── */
-let openDrivers={};
-function fillFromOpen(p){
-  const d=openDrivers[p.name];
-  if(!d)return;   // имя не из списка — оставляем как ввели
-  p.carNum=d.car; p.team=d.team;
-  if(!p.mfg)p.mfg=normMfg(d.mfg);   // производитель — прогноз, введённый не затираем
-}
-function openDatalist(){
-  const dl=el('datalist',{id:'calc-open-drivers'});
-  Object.keys(openDrivers).sort((a,b)=>a.localeCompare(b)).forEach(n=>
-    dl.appendChild(el('option',{value:n,label:[openDrivers[n].car&&'#'+openDrivers[n].car,openDrivers[n].team].filter(Boolean).join(' · ')})));
-  return dl;
-}
-// грузим сами: скрипт стартует раньше, чем сайт загрузит свои листы, и в Star их нет
-fetchSheet(`${site.year} ${DIVISIONS.open.races}`)
-  .then(rows=>{
+/* ── Листы дивизиона калькулятора: Races — подсказки участников, Quals — место в квалификации.
+   Грузим сами: скрипт стартует раньше, чем сайт загрузит свои листы, и дивизион может быть другим ── */
+const sheetCache={open:null,star:null};   // kind → {drivers, qualRows}
+const sheets=()=>sheetCache[calcKind]||{drivers:{},qualRows:[]};
+function loadSheets(kind){
+  if(sheetCache[kind])return;
+  sheetCache[kind]={drivers:{},qualRows:[]};   // заглушка — повторно не грузим
+  const div=DIVISIONS[kind];
+  fetchSheet(`${site.year} ${div.races}`).then(rows=>{
     const m={};
     rows.forEach(r=>{
       if(!r['Driver']||r['Round']==null)return;
       if(!(m[r['Driver']]?.rnd>r['Round']))m[r['Driver']]={rnd:r['Round'],
         car:r['#']==null||r['#']==='-'?'':String(r['#']),team:r['Team']&&r['Team']!=='—'?r['Team']:'',mfg:r['M.']||''};
     });
-    openDrivers=m;
-    if(state)render();
-  }).catch(e=>console.error('Калькулятор: лист Open Races',e));
+    sheetCache[kind].drivers=m;
+    sheetCache[kind].raceRows=rows;
+    if(state&&calcKind===kind)render();
+  }).catch(e=>console.error(`Калькулятор: лист ${div.races}`,e));
+  fetchSheet(`${site.year} ${div.quals}`).then(q=>{
+    sheetCache[kind].qualRows=q;
+    if(state&&calcKind===kind)render();
+  }).catch(e=>console.error(`Калькулятор: лист ${div.quals}`,e));
+  // места в чемпионате этого дивизиона — посчитанный зачёт из базы (с Чейзом, цензом, гостями)
+  if(kind!==site.division)rpc('slice',{season:site.year,division:kind,session:'races'}).then(r=>{
+    sheetCache[kind].standings=r.standings;
+    if(state&&calcKind===kind)render();
+  }).catch(e=>console.error('Калькулятор: зачёт дивизиона',e));
+}
 
-/* ── Место в квалификации с листа Open Quals: этап (state.round) + имя участника ── */
-let openQualRows=[], calendar=[];
+/* ── Участники: имя → #, команда, производитель по последнему этапу ── */
+function fillFromOpen(p){
+  const d=sheets().drivers[p.name];
+  if(!d)return;   // имя не из списка — оставляем как ввели
+  p.carNum=d.car; p.team=d.team;
+  if(!p.mfg)p.mfg=normMfg(d.mfg);   // производитель — прогноз, введённый не затираем
+}
+// Имя участника: выпадающий список с листа Races, как у пилотов; свободный ввод тоже можно
+function nameCombo(p){
+  const wrap=el('div',{class:'combo-c'});
+  const list=el('div',{class:'clist',style:'display:none'});
+  const input=el('input',{class:'pname-c',value:p.name,
+    onfocus:e=>{e.target.select();showList('');},
+    oninput:e=>{p.name=e.target.value;saveState(state);showList(e.target.value);}});
+  function pick(name){p.name=name;fillFromOpen(p);saveState(state);render();}
+  function showList(filter){
+    if(openCombo&&openCombo!==list)openCombo.style.display='none';
+    openCombo=list;list.innerHTML='';list.style.display='block';
+    const raw=filter.replace(/^#/,'').trim(), f=normName(raw);
+    const drivers=sheets().drivers;
+    const items=Object.keys(drivers).filter(n=>!f||normName(n).includes(f)||normName(drivers[n].team).includes(f)||drivers[n].car===raw)
+      .sort((a,b)=>a.localeCompare(b,'ru')).slice(0,60);
+    if(!items.length)list.appendChild(el('div',{class:'cempty'},Object.keys(drivers).length?'нет':'список загружается…'));
+    items.forEach(n=>list.appendChild(el('div',{class:'citem',onmousedown:ev=>{ev.preventDefault();pick(n);}},
+      n,el('span',{class:'cmeta-i'},[drivers[n].car&&' #'+drivers[n].car,drivers[n].team].filter(Boolean).join(' · ')))));
+  }
+  // перерисовка — только если имя изменилось, иначе сбросит фокус с поля, куда перешли
+  const initial=p.name;
+  input.addEventListener('blur',()=>{setTimeout(()=>{list.style.display='none';
+    if(p.name!==initial&&list.isConnected){fillFromOpen(p);saveState(state);render();}},150);});
+  wrap.appendChild(input);wrap.appendChild(list);
+  return wrap;
+}
+
+/* ── Команда: подставить всех её пилотов в участники, по месту в личном зачёте ── */
+// Место в чемпионате дивизиона калькулятора: в дивизионе, открытом на сайте, — готовый
+// зачёт сайта; в другом — тот же зачёт из базы (api.driver_standings), он догружается
+// вместе с листами калькулятора (sheetCache[kind].standings)
+function driverRanks(){
+  const st=calcKind===site.division&&site.races.standings.length
+    ?site.races.standings:(sheets().standings||[]);
+  return Object.fromEntries(st.filter(s=>s.rank!=null).map(s=>[s.driver,s.rank]));
+}
+function hasPredictions(p){
+  return p.drivers.some(Boolean)||p.predCaution!==''||p.predRet!==''||p.mfg!==''||p.qualResultPlace!==''||(p.duelPicks||[]).some(Boolean);
+}
+function setTeam(team){
+  const drivers=sheets().drivers, ranks=driverRanks();
+  const names=Object.keys(drivers).filter(n=>drivers[n].team===team)
+    // гости и пилоты вне зачёта — в конец, по алфавиту
+    .sort((a,b)=>(ranks[a]??Infinity)-(ranks[b]??Infinity)||a.localeCompare(b,'ru'));
+  const lost=state.participants.filter(p=>!names.includes(p.name)&&hasPredictions(p));
+  if(lost.length&&!confirm(`Заменить участников пилотами «${team}»? Прогнозы ${lost.map(p=>p.name).join(', ')} будут удалены.`)){render();return;}
+  const byName=Object.fromEntries(state.participants.map(p=>[p.name,p]));
+  state.team=team;
+  state.participants=names.map(n=>{const p=byName[n]||newParticipant(n);fillFromOpen(p);return p;});
+  if(!state.participants.length)state.participants=[newParticipant('Участник 1')];
+  state.sort={key:null,dir:'desc'};   // показываем порядок по месту в чемпионате
+  saveState(state);render();
+}
+function teamSelect(){
+  const teams=[...new Set(Object.values(sheets().drivers).map(d=>d.team).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ru'));
+  return el('div',{class:'pgrp'},el('label',{},'Команда'),
+    el('select',{class:'pin',style:'width:220px',title:'Подставить всех пилотов команды — по месту в чемпионате',
+      onchange:e=>{if(e.target.value)setTeam(e.target.value);}},
+      el('option',{value:''},teams.length?'— команда —':'Загрузка…'),
+      ...teams.map(t=>el('option',{value:t,...(t===state.team?{selected:'selected'}:{})},t))));
+}
+
+/* ── Место в квалификации с листа Quals дивизиона: этап (state.round) + имя участника ── */
+let calendar=[];
 // null — этап не выбран или участника нет в протоколе этапа: тогда место считается по данным фида
 function sheetQualPlace(p){
   if(!state||state.round==null||state.round==='')return null;
-  const r=openQualRows.find(x=>x['Round']===+state.round&&x['Driver']===p.name&&x['Pos.']!=null);
+  const r=sheets().qualRows.find(x=>x['Round']===+state.round&&x['Driver']===p.name&&x['Pos.']!=null);
   return r?r['Pos.']:null;
 }
 function roundSelect(){
-  return el('div',{class:'pgrp'},el('label',{},'Этап (Open Quals)'),
-    el('select',{class:'pin',title:'Место в квалификации берётся с листа Open Quals для этого этапа',
+  const q=DIVISIONS[calcKind].quals;
+  return el('div',{class:'pgrp'},el('label',{},`Этап (${q})`),
+    el('select',{class:'pin',title:`Место в квалификации берётся с листа ${q} для этого этапа`,
       onchange:e=>{state.round=e.target.value;saveState(state);render();}},
       el('option',{value:''},calendar.length?'— не выбран —':'Загрузка…'),
       ...calendar.map(c=>el('option',{value:String(c.n),...(String(c.n)===String(state.round)?{selected:'selected'}:{})},c.n+' · '+c.name))));
 }
-Promise.all([fetchSheet(`${site.year} ${DIVISIONS.open.quals}`),fetchSheet(`${site.year} Calendar`)])
-  .then(([q,cal])=>{
-    openQualRows=q;
-    // дуэли (1.1, 1.2) — часть первого этапа, отдельно не выбираются; этап 0 — вне зачёта
-    calendar=cal.filter(c=>Number.isInteger(c['#'])&&c['#']>0).map(c=>({n:c['#'],name:c['Name']||''}));
-    if(state)render();
-  }).catch(e=>console.error('Калькулятор: листы Open Quals / Calendar',e));
 
-(async function(){const l=await loadState();state=l||JSON.parse(JSON.stringify(DEFAULT));for(const k in DEFAULT){if(!(k in state))state[k]=DEFAULT[k];}if(!state.participants||!state.participants.length)state.participants=[newParticipant('Участник 1')];render();})();
+fetchSheet(`${site.year} Calendar`).then(cal=>{
+  // дуэли (1.1, 1.2) — часть первого этапа, отдельно не выбираются; этап 0 — вне зачёта
+  calendar=cal.filter(c=>Number.isInteger(c['#'])&&c['#']>0).map(c=>({n:c['#'],name:c['Name']||''}));
+  if(state)render();
+}).catch(e=>console.error('Калькулятор: лист Calendar',e));
+
+/* ── Star: пары дуэлей ── */
+// «#5 Larson»; без ростера имя — сам номер, не дублируем
+const shortDrv=numv=>{const d=driverData(numv);if(!d)return '—';const last=(d.name||'').split(' ').pop();return '#'+d.num+(last&&last[0]!=='#'?' '+last:'');};
+function renderDuelPairs(root){
+  const card=el('section',{class:'card'});
+  card.appendChild(el('div',{class:'sechd'},el('span',{},'Пары дуэлей'),
+    el('span',{class:'badge'},'+2 за угаданную пару · квала и гонка отдельно')));
+  const roster=combinedRoster().sort((a,b)=>+a.num-+b.num);
+  state.duelPairs.forEach((pair,i)=>{
+    const sel=j=>el('select',{class:'msel duel-pair-sel',onchange:e=>{pair[j]=e.target.value||null;saveState(state);render();}},
+      el('option',{value:''},'—'),
+      // выбранный пилот мог не попасть в ростер (фид ещё не загружен) — не теряем его
+      ...(pair[j]&&!roster.some(d=>d.num===pair[j])?[el('option',{value:pair[j],selected:'selected'},'#'+pair[j])]:[]),
+      ...roster.map(d=>el('option',{value:d.num,...(d.num===pair[j]?{selected:'selected'}:{})},`#${d.num} ${d.name}`)));
+    const res=[['Кв.','qualPlace'],['Гонка','racePlace']].map(([lbl,k])=>{const w=duelWinner(pair,k);return w?`${lbl}: ${shortDrv(w)}`:null;}).filter(Boolean);
+    card.appendChild(el('div',{class:'duel-pair'},el('span',{class:'duel-n'},String(i+1)),sel(0),el('span',{class:'duel-vs'},'vs'),sel(1),
+      res.length?el('span',{class:'duel-res'},res.join(' · ')):null));
+  });
+  root.appendChild(card);
+}
+function duelCell(p,s){
+  const td=el('td',{class:'td-duel'});
+  // одна строка: «5 9 | 12 22 | …»; клик по номеру — выбор (рамка), повторный — снять
+  if(state.duelPairs.some(pair=>pair[0]&&pair[1])){
+    const row=el('div',{class:'duel-row'});
+    state.duelPairs.forEach((pair,i)=>{
+      if(i)row.appendChild(el('span',{class:'duel-sep'},'|'));
+      if(!pair[0]||!pair[1]){row.appendChild(el('span',{class:'duel-sep',title:`Пара ${i+1} не задана`},'—'));return;}
+      const pick=p.duelPicks?.[i]??null;
+      pair.forEach(n=>row.appendChild(el('button',{class:'duel-num'+(n===pick?' sel':''),
+        title:`Пара ${i+1}: ${driverData(n)?.name||'#'+n}`,
+        onclick:()=>{(p.duelPicks||(p.duelPicks=Array(DUEL_COUNT).fill(null)))[i]=n===pick?null:n;saveState(state);render();}},n)));
+    });
+    td.appendChild(row);
+  } else td.appendChild(el('div',{class:'cmeta'},'пары не заданы'));
+  const pts=[s.dueQual&&'Кв +'+s.dueQual,s.dueRace&&'Гн +'+s.dueRace].filter(Boolean);
+  if(pts.length)td.appendChild(el('div',{class:'bpts-s'},pts.join(' · ')));
+  return td;
+}
+
+/* ── Переключение калькулятора: у каждого своё сохранение ── */
+async function switchCalc(kind,withSheets=true){
+  if(state){ if(kind===calcKind)return; await saveState(state); }
+  calcKind=kind;
+  try{localStorage.setItem('fncs_calc_kind',kind);}catch(e){}
+  if(withSheets)loadSheets(kind);
+  const l=await loadState();
+  state=l||JSON.parse(JSON.stringify(DEFAULT));
+  for(const k in DEFAULT){if(!(k in state))state[k]=JSON.parse(JSON.stringify(DEFAULT[k]));}
+  if(!state.participants||!state.participants.length)state.participants=[newParticipant('Участник 1')];
+  render();
+}
+// протоколы калькулятору нужны только когда вкладку открыли — их дёргает ensureTab
+window.calcLoadSheets=()=>loadSheets(calcKind);
+switchCalc(calcKind,false);
 })(state);

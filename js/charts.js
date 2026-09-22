@@ -5,18 +5,23 @@ const chartSel = {
   quals: { team: '', drivers: [], msFilter: '' }
 };
 
+/* Цвета осей и легенды — из токенов темы, чтобы график жил в тёмной и светлой */
+const themeColor = name =>
+  getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
 function lineChartOptions() {
+  const text = themeColor('--text2'), muted = themeColor('--muted'), grid = themeColor('--row-line');
   return {
     responsive: true,
     maintainAspectRatio: false,
     interaction: { mode: 'index', intersect: false },
     plugins: {
-      legend: { labels: { color: '#bbb', font: { size: 11 }, boxWidth: 14 } },
+      legend: { labels: { color: text, font: { size: 11 }, boxWidth: 14 } },
       tooltip: { mode: 'index', intersect: false }
     },
     scales: {
-      x: { grid: { color: '#ffffff0c' }, ticks: { color: '#666' } },
-      y: { grid: { color: '#ffffff0c' }, ticks: { color: '#666' } }
+      x: { grid: { color: grid }, ticks: { color: muted } },
+      y: { grid: { color: grid }, ticks: { color: muted } }
     }
   };
 }
@@ -158,8 +163,8 @@ document.addEventListener('click', e => {
 });
 
 // Цвета из бейджей производителей; нет производителя — серый
-const MFR_COLORS = { Toyota: '#f05555', Chevy: '#f0c000', Ford: '#7799ff' };
-const GRAY = '#7a7a9a';
+const MFR_COLORS = { Toyota: '#eb4a58', Chevy: '#f5d90a', Ford: '#5aa9ff' };
+const GRAY = '#8d95a3';
 
 function drawRankChart(hist, color, allRounds = state.races.rounds) {
   const id = 'chart-driver-rank';

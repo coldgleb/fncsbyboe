@@ -1,24 +1,13 @@
 /* Общее: конфиг, состояние, загрузка листов, хелперы разметки, вкладки, сортировка таблиц */
 
-// Каждый сезон лежит на своей таблице Google Sheets — новый год дописывается сюда
-const SHEETS_BY_YEAR = {
-  2026: '1677JnB2uVlF0AQcS3x4m45ewpKyzJkRBmwCD7EfJBBg',
-};
-const SEASONS = Object.keys(SHEETS_BY_YEAR).map(Number);
+// Сезоны, которые есть в базе: при добавлении нового достаточно дописать год
+const SEASONS = [2026];
 const COLORS = [
   '#ffd23f', '#5aa9ff', '#5ed16a', '#c9a2ff', '#3ee0c5',
   '#ff8f5e', '#e0699b', '#89b4ff', '#d86c3c', '#4bbf8f',
   '#b06bd6', '#2f9bd8', '#e4c04a', '#9fb0c4', '#f5d90a'
 ];
 const PAGE_SIZE = 20;
-
-/* Правила зачётов считает база (db/api.sql). Здесь — только то, что нужно для показа:
-   дуэли 1.1/1.2 — часть первого этапа, а Чейз (и его тумблер) — после 26 этапа. */
-const SPRINT_ROUNDS = new Set([1.1, 1.2]);
-const CHASE_START = 26;
-// команда пилота и средняя позиция — уже посчитаны базой, это их вид в таблицах
-const teamOf = driver => state.teamOf?.[driver] || '—';
-const avgPos = s => (s.finishes ? (s.posSum / s.finishes).toFixed(1) : '—');
 
 /* Дивизионы. Star лежит на своих листах; коалиций и зачёта им. Голубочкина в нём нет,
    а лист Round общий — календарь этапов один на оба дивизиона. */
@@ -37,16 +26,18 @@ const state = {
   division: new URLSearchParams(location.hash.slice(1)).get('div') === 'star' ? 'star' : 'open',
   races: { standings: [], rounds: [], rows: [] },
   quals: { standings: [], rounds: [], rows: [] },
-  filter: { races: '', quals: '' },
+  indRaces: { standings: [] },
+  indQuals: { standings: [] },
+  filter: { races: '', quals: '', indRaces: '', indQuals: '' },
   pivot: { races: '', quals: '' },
   golubFilter: { races: '', quals: '' },
-  page: { races: 1, quals: 1 },
+  page: { races: 1, quals: 1, indRaces: 1, indQuals: 1 },
   // Срез зачёта: этап, после которого показываем таблицу (null — последний, т.е. весь сезон)
-  upTo: { races: null, quals: null, owners: null },
+  upTo: { races: null, quals: null, indRaces: null, indQuals: null, owners: null },
   // Переключатель «Регулярный сезон / Чейз»: 'auto' — с 27 этапа сам Чейз, до этого
   // обычный сезон; 'regular'/'chase' — явный выбор пользователя, виден с 26 этапа
   chaseView: { races: 'auto', quals: 'auto', owners: 'auto' },
-  sort: { races: null, quals: null },
+  sort: { races: null, quals: null, indRaces: null, indQuals: null },
   // когда данные реально приехали с листов (у кэшированных — время их загрузки)
   dataTs: null,
   charts: {}
@@ -80,7 +71,7 @@ function toNum(v) {
    Данные за день меняются считанные разы: держим разобранные строки в localStorage
    12 часов. Принудительно свежие — кнопка «Обновить» в шапке (init(true)); обычная
    перезагрузка страницы берёт кэш. Версию поднимаем, когда меняется формат данных. */
-const CACHE_V = 4;
+const CACHE_V = 3;
 const CACHE_TTL = 12 * 3600 * 1000;
 const cacheKey = name => `fncs:${CACHE_V}:${state.year}:${name}`;
 
@@ -116,37 +107,66 @@ function cacheClear() {
   } catch (e) { }
 }
 
-/* ── Данные ──
-   Исходные протоколы лежат в Google Sheets и грузятся через gviz (JSONP — CORS у
-   Google закрыт). Разобранные строки держим в кэше браузера 12 часов, кнопка
-   «Обновить» идёт мимо кэша. Готовые таблицы (зачёты, сводные, метрика) собирает
-   js/local-api.js тем же расчётом, что проверен тестами. */
+/* ── Загрузка листа из D1 ──
+   Данные приезжают из Worker-а (cloud/worker.js) с теми же названиями полей, что
+   были у листов Google Sheets, поэтому расчёты ниже ничего не заметили. Ответ
+   компактный: колонки один раз, строки массивами, повторяющиеся строковые
+   значения — индексами в словарях; крупные протоколы идут порциями (поле next). */
+const API_BASE = 'https://fncsbyboe.saygingleb101.workers.dev';
 
-function loadSheet(name) {
-  return new Promise((resolve, reject) => {
-    const cb = `_gviz_${name.replace(/\W/g, '')}_${Date.now()}`;
-    const script = document.createElement('script');
-    script.src = `https://docs.google.com/spreadsheets/d/${SHEETS_BY_YEAR[state.year]}/gviz/tq`
-      + `?tqx=responseHandler:${cb}&sheet=${encodeURIComponent(name)}`;
-    // JSONP умеет молча не ответить — без таймаута страница висит вечно
-    const fail = msg => { clearTimeout(timer); delete window[cb]; script.remove(); reject(new Error(msg)); };
-    const timer = setTimeout(() => fail(`Лист «${name}» не ответил за 20 секунд`), 20000);
-    window[cb] = json => {
-      clearTimeout(timer);
-      delete window[cb];
-      script.remove();
-      // Лист без настоящей шапки (gviz её не распознал) отдаёт пустой label у всех
-      // колонок — тогда одноимёнными ключами схлопнется всё, кроме последней колонки;
-      // берём id столбца ('A', 'B', …) как запасной уникальный ключ
-      const cols = json.table.cols.map(c => c.label || c.id);
-      resolve(json.table.rows.map(row => {
-        const vals = row.c.map(c => (c ? c.v : null));
-        return Object.fromEntries(cols.map((col, i) => [col, NUM_KEYS.has(col) ? toNum(vals[i]) : vals[i]]));
-      }));
-    };
-    script.onerror = () => fail(`Не удалось загрузить лист «${name}»`);
-    document.head.appendChild(script);
-  });
+/* Запрос к API с повтором. В некоторых сетях HTTP/3 (QUIC) рвёт соединение
+   на полпути; после такого сбоя браузер сам откатывается на HTTP/2, поэтому
+   повторный запрос обычно проходит. */
+async function apiFetch(url, what, tries = 5) {
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) throw new Error(`${what}: сервер ответил ${res.status}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      return data;
+    } catch (err) {
+      lastErr = err;
+      if (/сервер ответил 4/.test(err.message)) break;   // 4xx повтором не лечится
+    }
+  }
+  throw lastErr;
+}
+
+function unpack(page, into) {
+  const { cols, enc = [], dict = {}, rows } = page;
+  const coded = new Set(enc);
+  for (const values of rows) {
+    const row = {};
+    cols.forEach((col, i) => {
+      const v = values[i];
+      const raw = coded.has(col) && typeof v === 'number' ? dict[col][v] : v;
+      row[col] = NUM_KEYS.has(col) ? toNum(raw) : raw;
+    });
+    into.push(row);
+  }
+  return page.next;
+}
+
+function page(name, offset) {
+  const url = `${API_BASE}/sheets/${encodeURIComponent(name)}` + (offset ? `?offset=${offset}` : '');
+  return apiFetch(url, `Лист «${name}»`);
+}
+
+async function loadSheet(name) {
+  const first = await page(name, 0);
+  const rows = [];
+  unpack(first, rows);
+  if (first.next == null) return rows;
+
+  // сколько ещё порций — известно из total первой; тянем их разом, а не цепочкой
+  const step = first.next;
+  const offsets = [];
+  for (let o = step; o < first.total; o += step) offsets.push(o);
+  const rest = await Promise.all(offsets.map(o => page(name, o)));
+  for (const p of rest) unpack(p, rows);
+  return rows;
 }
 
 async function fetchSheet(name, fresh) {
@@ -161,9 +181,42 @@ async function fetchSheet(name, fresh) {
   return rows;
 }
 
-/* Готовая таблица по имени и параметрам — считает js/local-api.js */
-function rpc(fn, params = {}, fresh = false) {
-  return localRpc(fn, params, fresh);
+/* ── Посчитанные таблицы с сервера ──
+   Зачёты, сводные, история мест и метрика считаются в Worker-е (cloud/season.js тем
+   же кодом, что лежит в js/*.js) и приезжают готовыми частями. Сырые протоколы этапов
+   фронт тянет только там, где без них не обойтись, — и только по требованию. */
+async function seasonPart(part, fresh) {
+  const key = `part:${state.division}:${part}`;
+  if (!fresh) {
+    const cached = cacheRead(key);
+    if (cached) return cached;
+  }
+  const url = `${API_BASE}/season/${state.year}/${state.division}/${part}`;
+  const data = await apiFetch(url, `Данные «${part}»`);
+  const ts = Date.now();
+  noteDataTs(ts);
+  cacheWrite(key, data, ts);
+  return data;
+}
+
+/* Протоколы этапов: нужны вкладке «По этапам», карточкам, калькулятору и метрике.
+   Грузим один раз по требованию, а не на старте. */
+let rowsPromise = null;
+
+function ensureRows(fresh) {
+  if (fresh) rowsPromise = null;
+  if (rowsPromise) return rowsPromise;
+  const div = DIVISIONS[state.division];
+  rowsPromise = Promise.all([
+    fetchSheet(`${state.year} ${div.races}`, fresh),
+    fetchSheet(`${state.year} ${div.quals}`, fresh),
+  ]).then(([races, quals]) => {
+    state.races.rows = races;
+    state.quals.rows = quals;
+    state.races.rowsWithDuel = [...races, ...quals.filter(r => SPRINT_ROUNDS.has(parseFloat(r['Round'])))];
+    return state;
+  }).catch(err => { rowsPromise = null; throw err; });
+  return rowsPromise;
 }
 
 /* ── Round view ── */
@@ -203,17 +256,15 @@ function penMark(t) {
   return `<span class="pen-mark"${why ? ` title="${why}"` : ''}>−${t.penalty}</span> `;
 }
 
+/* Накопительный итог команды: штраф входит в него начиная со своего этапа, до него
+   кривая и сводные идут чистыми очками. Штраф без этапа считается сезонным — с первого. */
+const penaltyBy = (t, round) =>
+  t.penalty && (t.penaltyRound == null || t.penaltyRound <= round) ? t.penalty : 0;
+
 /* Производителя в листах пишут по-разному (Chevrolet, Chevy, Chv) — цвет бейджа
    и линии графика один и тот же, поэтому приводим написание к классу из CSS. */
 const MFR_MATCH = [[/^(toy|tyt)/i, 'Toyota'], [/^(chev|chv)/i, 'Chevy'], [/^(ford|frd)/i, 'Ford']];
 const mfrKey = mfr => MFR_MATCH.find(([re]) => re.test(mfr || ''))?.[1] || mfr;
-
-// Номер машины пилота — в цвете его производителя (тот же набор классов, что у марки)
-function carBadge(car, mfr) {
-  if (!car || car === '—' || car === '-') return '<span class="muted">—</span>';
-  const key = mfrKey(mfr);
-  return `<span class="car-badge${key ? ' ' + key : ''}">${car}</span>`;
-}
 
 function mfrBadge(mfr) {
   if (!mfr || mfr === '-') return '';
@@ -410,8 +461,8 @@ function applyDivision() {
   document.querySelectorAll('.div-btn').forEach(b =>
     b.classList.toggle('rtog-active', b.dataset.div === state.division));
 
-  const hidden = [...(div.golub ? [] : ['golub']), ...(div.entries ? [] : ['entries'])];
-  for (const tab of ['golub', 'entries']) {
+  const hidden = [...(div.golub ? [] : ['golub']), ...(div.coalitions ? [] : ['ind']), ...(div.entries ? [] : ['entries'])];
+  for (const tab of ['golub', 'ind', 'entries']) {
     const on = !hidden.includes(tab);
     document.querySelector(`.tab-btn[data-tab="${tab}"]`).style.display = on ? '' : 'none';
     if (!on && document.querySelector('.tab-btn.active')?.dataset.tab === tab) switchTab('races');
