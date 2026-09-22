@@ -120,7 +120,7 @@ function cacheClear() {
    через PostgREST: каждая функция — GET /rpc/<имя>?p_параметр=значение.
    Адрес можно временно переопределить для отладки: localStorage.api_base = 'http://…'. */
 const API_BASE = (() => {
-  try { return localStorage.getItem('api_base') || 'https://sgl813.ru/fncs-api'; } catch (e) { return 'https://sgl813.ru/fncs-api'; }
+  try { return localStorage.getItem('api_base') || 'https://db.sgl813.ru'; } catch (e) { return 'https://db.sgl813.ru'; }
 })();
 
 /* Запрос с повтором: в некоторых сетях соединение рвётся на полпути, повтор обычно проходит */
