@@ -1,0 +1,14 @@
+# Worker с API поверх D1 + работа с базой из CLI:
+#   npx wrangler deploy --config cloud/wrangler.toml
+#   npx wrangler d1 execute fncsbyboe --config cloud/wrangler.toml --remote --file=cloud/schema.sql
+name = "fncsbyboe"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+[observability]
+enabled = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "fncsbyboe"
+database_id = "7af83f48-9ca9-4760-af85-d64c407a7f6d"

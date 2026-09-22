@@ -7,14 +7,19 @@ const assert = require('assert');
 const fs = require('fs');
 const DR_KEYS = ['DR1', 'DR2', 'DR3', 'DR4'];
 
-// ── функции берём прямо из исходников, чтобы тест не разъезжался с кодом ──
-const cut = (file, from, to) => {
-  const src = fs.readFileSync(__dirname + '/js/' + file, 'utf8');
+/* ── функции берём прямо из исходников, чтобы тест не разъезжался с кодом ──
+   Правила зачётов теперь считает PostgreSQL (db/api.sql); их прежний JS-расчёт заморожен
+   в db/reference/ как эталон — на нём и проверяются правила ниже, а db/verify.mjs сверяет
+   с этим эталоном саму базу. Из js/ проверяется то, что осталось в браузере. */
+const cutFrom = dir => (file, from, to) => {
+  const src = fs.readFileSync(__dirname + dir + file, 'utf8');
   return src.slice(src.indexOf(from), src.indexOf(to));
 };
-const orderField = new Function('DR_KEYS', cut('rounds.js', 'const orderField', 'const ofRound') + '; return orderField;')(DR_KEYS);
+const cut = cutFrom('/js/');               // то, что работает в браузере
+const cutRef = cutFrom('/db/reference/');   // эталон правил
+const orderField = new Function('DR_KEYS', cutRef('rounds.js', 'const orderField', 'const ofRound') + '; return orderField;')(DR_KEYS);
 
-const posMap = new Function(cut('drivers.js', 'const posMap', '  const map = ') + '; return posMap;')();
+const posMap = new Function(cutRef('drivers.js', 'const posMap', '  const map = ') + '; return posMap;')();
 
 const row = (pos, pts, dr = 10) => ({ 'Pos.': pos, Points: pts, DR1: dr, Driver: 'D' + pts, Round: 1 });
 
@@ -90,7 +95,7 @@ const row = (pos, pts, dr = 10) => ({ 'Pos.': pos, Points: pts, DR1: dr, Driver:
 {
   // isGuestDriver живёт в core.js — сюда подставляем заглушку, гостей в этом наборе нет
   const teamStandings = (state, rows) => new Function('state', 'isGuestDriver',
-    fs.readFileSync(__dirname + '/js/standings.js', 'utf8') + '; return computeTeamStandings;')(state, () => false)(rows);
+    fs.readFileSync(__dirname + '/db/reference/standings.js', 'utf8') + '; return computeTeamStandings;')(state, () => false)(rows);
   const rows = [                                   // P1 → 55 очк., P2 → 35 очк.
     { Round: 1, 'Pos.': 1, Driver: 'A', Team: 'Alpha' },
     { Round: 1, 'Pos.': 2, Driver: 'B', Team: 'Beta' },
@@ -115,7 +120,7 @@ const row = (pos, pts, dr = 10) => ({ 'Pos.': pos, Points: pts, DR1: dr, Driver:
 
 // Накопительный итог: штраф входит в него со своего этапа, а не с начала сезона
 {
-  const penaltyBy = new Function(cut('core.js', 'const penaltyBy', '/* Производителя') + '; return penaltyBy;')();
+  const penaltyBy = new Function(cutRef('core.js', 'const penaltyBy', '/* Производителя') + '; return penaltyBy;')();
   const t = { penalty: 100, penaltyRound: 3 };
   assert.deepStrictEqual([1, 2, 3, 4].map(r => penaltyBy(t, r)), [0, 0, 100, 100], 'штраф с 3 этапа');
   assert.strictEqual(penaltyBy({ penalty: 100, penaltyRound: null }, 1), 100, 'без этапа — сезонный');
@@ -136,7 +141,7 @@ const row = (pos, pts, dr = 10) => ({ 'Pos.': pos, Points: pts, DR1: dr, Driver:
 // Чейз: топ-16 сбрасываются на стартовую сетку после 26 этапа, остальные копят очки как обычно
 {
   const { computeChaseStandings } = new Function('state', 'isGuestDriver',
-    fs.readFileSync(__dirname + '/js/standings.js', 'utf8') + '; return { computeChaseStandings };')({
+    fs.readFileSync(__dirname + '/db/reference/standings.js', 'utf8') + '; return { computeChaseStandings };')({
       quals: { rounds: Array.from({ length: 26 }, (_, i) => i + 1) },
       // D5 пропустил больше 5 квалификаций — вне Чейза, несмотря на очки в топ-5 по гонкам
       qualsParticipation: Object.fromEntries(
@@ -169,11 +174,63 @@ const row = (pos, pts, dr = 10) => ({ 'Pos.': pos, Points: pts, DR1: dr, Driver:
   assert.strictEqual(byDriver27.D1.chase.wins, 0, 'тай-брейк Чейза — только по его этапам');
 }
 
+// Чейз владельцев: топ-16 машин сбрасываются на стартовую сетку после 26 этапа
+{
+  const { computeChaseOwnerStandings } = new Function('state', 'isGuestDriver',
+    fs.readFileSync(__dirname + '/db/reference/standings.js', 'utf8') + '; return { computeChaseOwnerStandings };')({
+      quals: { rounds: Array.from({ length: 26 }, (_, i) => i + 1) },
+      qualsParticipation: {},
+    }, () => false);
 
+  const regRows = Array.from({ length: 18 }, (_, i) => ({ Round: 1, 'Pos.': i + 1, '#': String(i + 1) }));
+
+  const at26 = computeChaseOwnerStandings(regRows);
+  const byCar = Object.fromEntries(at26.map(o => [o.car, o]));
+  assert.strictEqual(byCar['1'].total, 2100, 'лидер по машинам — сид 1');
+  assert.strictEqual(byCar['17'].total, 20, '17-я машина вне топ-16 — очки без сброса (55-35=20)');
+
+  const withR27 = computeChaseOwnerStandings([
+    ...regRows,
+    { Round: 27, 'Pos.': 5, '#': '1' },
+    { Round: 27, 'Pos.': 1, '#': '17' },
+  ]);
+  const byCar27 = Object.fromEntries(withR27.map(o => [o.car, o]));
+  assert.strictEqual(byCar27['1'].total, 2132, 'Чейз: сид + очки за 27 этап');
+  assert.strictEqual(byCar27['17'].total, 75, 'вне Чейза: сумма очков за все этапы, без сброса (20 + 55)');
+}
+
+// Метрика на следующий этап (п. 8.8): 50% гонка, 25% чемпионат, 25% машина у владельцев
+{
+  const { computeNextMetric, metricChampRanks } = new Function('state', 'isGuestDriver',
+    fs.readFileSync(__dirname + '/db/reference/standings.js', 'utf8') + '; return { computeNextMetric, metricChampRanks };')(
+    {}, d => d === 'G');
+
+  const m = computeNextMetric([
+    { driver: 'A', place: 1, champRank: 3, ownerRank: 5 },   // 0.5 + 0.75 + 1.25 = 2.5
+    { driver: 'B', place: 2, champRank: 1, ownerRank: 5 },   // 1 + 0.25 + 1.25 = 2.5, но выше в чемпионате
+    { driver: 'C', place: 41, champRank: 2, ownerRank: 1 },
+  ]);
+  assert.strictEqual(m.find(x => x.driver === 'A').metric, 2.5, 'формула 50/25/25');
+  assert.deepStrictEqual(m.map(x => x.driver), ['B', 'A', 'C'], 'равная метрика — выше тот, кто выше в чемпионате (п. 8.8.2)');
+
+  const ranks = metricChampRanks(
+    [{ driver: 'A', rank: 1 }, { driver: 'B', rank: 2 }, { driver: 'G', rank: null }],
+    [
+      { Driver: 'X', Round: 2, 'Pos.': 45 }, { Driver: 'X', Round: 3, 'Pos.': 50 },
+      { Driver: 'Y', Round: 2, 'Pos.': 42 }, { Driver: 'Y', Round: 3, 'Pos.': 48 },
+      { Driver: 'Z', Round: 3, 'Pos.': 41 },                 // другой набор этапов
+      { Driver: 'X', Round: 1.1, 'Pos.': 1 },                // дуэль не в счёт
+    ]);
+  assert.strictEqual(ranks.A, 1, 'зачётный — своё место');
+  assert.strictEqual(ranks.G, 3, 'гость — последнее + 1');
+  assert.strictEqual(ranks.Y, 3, 'без стартов, те же этапы, лучшая квала — выше (п. 8.8.3)');
+  assert.strictEqual(ranks.X, 4, 'без стартов, те же этапы, квала хуже');
+  assert.strictEqual(ranks.Z, 3, 'без стартов с другим набором этапов — делит место');
+}
 
 // Заявки: фулл-тайм машины, статистика по всем прогнозам команды и ранги с общими местами
 {
-  const src = fs.readFileSync(__dirname + '/js/entries.js', 'utf8');
+  const src = fs.readFileSync(__dirname + '/db/reference/entries.js', 'utf8');
   const load = state => new Function('state', 'SPRINT_ROUNDS',
     src + '; return { computeEntries, factByTeamRound, planByTeam, teamStats, rankBy, metricScore, isRanked };')(state, new Set([1.1, 1.2]));
 
@@ -270,6 +327,40 @@ const row = (pos, pts, dr = 10) => ({ 'Pos.': pos, Points: pts, DR1: dr, Driver:
   assert.strictEqual(metricScore({ ...sample, pct: 100 }).toFixed(3), '7.750', 'без пропусков — базовая метрика');
   assert.strictEqual(metricScore({ ...sample, winsRank: null }), null, 'без одного ранга метрики нет');
   assert.strictEqual(metricScore({ ...sample, pct: null }), null, 'без плановых заявок метрики нет');
+}
+
+{
+  // Чейз (сброс очков на сетку 2000+) — только после 26 этапа, даже если тумблер стоит на «Чейз»
+  const state = { chaseView: { races: 'chase', quals: 'auto', owners: 'regular' } };
+  const isChaseMode = new Function('state', 'CHASE_START',
+    cut('drivers.js', 'const isChaseMode', '// Зачёт по состоянию') + '; return isChaseMode;')(state, 26);
+
+  assert.strictEqual(isChaseMode('races', 10), false, 'на 10 этапе Чейза нет даже при явном выборе');
+  assert.strictEqual(isChaseMode('races', 26), false, '26 этап — последний регулярный, Чейза ещё нет');
+  assert.strictEqual(isChaseMode('races', 27), true, 'с 27 этапа выбор «Чейз» действует');
+  assert.strictEqual(isChaseMode('quals', 27), true, 'auto с 27 этапа — Чейз');
+  assert.strictEqual(isChaseMode('quals', 26), false, 'auto до 27 этапа — регулярный сезон');
+  assert.strictEqual(isChaseMode('owners', 28), false, 'явный «Регулярный сезон» отключает Чейз и после 26');
+  assert.strictEqual(isChaseMode('indRaces', 28), false, 'у независимых Чейза нет вообще');
+}
+
+{
+  // Числа из листов: ячейка могла оказаться текстом, разделитель — точка или запятая
+  const toNum = new Function(cut('core.js', 'function toNum', '/* ── Кэш листов') + '; return toNum;')();
+
+  assert.strictEqual(toNum('12.5'), 12.5, 'точка как разделитель');
+  assert.strictEqual(toNum('12,5'), 12.5, 'запятая как разделитель');
+  assert.strictEqual(toNum('124'), 124, 'целое текстом');
+  assert.strictEqual(toNum(' 40 '), 40, 'пробелы вокруг числа');
+  assert.strictEqual(toNum('1 250'), 1250, 'разряды через пробел');
+  assert.strictEqual(toNum('-3'), -3, 'минус сохраняется');
+  assert.strictEqual(toNum(55), 55, 'число не трогаем');
+  assert.strictEqual(toNum(null), null, 'пустая ячейка — null');
+  assert.strictEqual(toNum(''), null, 'пустая строка — null');
+  assert.strictEqual(toNum('—'), null, 'прочерк — null');
+  assert.strictEqual(toNum('DQ'), 'DQ', 'не число — как есть');
+  // '09' превратилось бы в 9, поэтому «#» (номер машины) не входит в NUM_KEYS
+  assert.strictEqual(toNum('09'), 9, 'ведущий ноль теряется — «#» не нормализуем');
 }
 
 console.log('ok');

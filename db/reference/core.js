@@ -9,14 +9,6 @@ const COLORS = [
 ];
 const PAGE_SIZE = 20;
 
-/* Правила зачётов считает база (db/api.sql). Здесь — только то, что нужно для показа:
-   дуэли 1.1/1.2 — часть первого этапа, а Чейз (и его тумблер) — после 26 этапа. */
-const SPRINT_ROUNDS = new Set([1.1, 1.2]);
-const CHASE_START = 26;
-// команда пилота и средняя позиция — уже посчитаны базой, это их вид в таблицах
-const teamOf = driver => state.teamOf?.[driver] || '—';
-const avgPos = s => (s.finishes ? (s.posSum / s.finishes).toFixed(1) : '—');
-
 /* Дивизионы. Star лежит на своих листах; коалиций и зачёта им. Голубочкина в нём нет,
    а лист Round общий — календарь этапов один на оба дивизиона. */
 const DIVISIONS = {
@@ -79,7 +71,7 @@ function toNum(v) {
    Данные за день меняются считанные разы: держим разобранные строки в localStorage
    12 часов. Принудительно свежие — кнопка «Обновить» в шапке (init(true)); обычная
    перезагрузка страницы берёт кэш. Версию поднимаем, когда меняется формат данных. */
-const CACHE_V = 4;
+const CACHE_V = 3;
 const CACHE_TTL = 12 * 3600 * 1000;
 const cacheKey = name => `fncs:${CACHE_V}:${state.year}:${name}`;
 
@@ -115,55 +107,116 @@ function cacheClear() {
   } catch (e) { }
 }
 
-/* ── Данные с сервера ──
-   Все таблицы считает PostgreSQL (схема api, db/api.sql), сайт получает их готовыми
-   через PostgREST: каждая функция — GET /rpc/<имя>?p_параметр=значение.
-   Адрес можно временно переопределить для отладки: localStorage.api_base = 'http://…'. */
-const API_BASE = (() => {
-  try { return localStorage.getItem('api_base') || 'https://sgl813.ru/fncs-api'; } catch (e) { return 'https://sgl813.ru/fncs-api'; }
-})();
+/* ── Загрузка листа из D1 ──
+   Данные приезжают из Worker-а (cloud/worker.js) с теми же названиями полей, что
+   были у листов Google Sheets, поэтому расчёты ниже ничего не заметили. Ответ
+   компактный: колонки один раз, строки массивами, повторяющиеся строковые
+   значения — индексами в словарях; крупные протоколы идут порциями (поле next). */
+const API_BASE = 'https://fncsbyboe.saygingleb101.workers.dev';
 
-/* Запрос с повтором: в некоторых сетях соединение рвётся на полпути, повтор обычно проходит */
+/* Запрос к API с повтором. В некоторых сетях HTTP/3 (QUIC) рвёт соединение
+   на полпути; после такого сбоя браузер сам откатывается на HTTP/2, поэтому
+   повторный запрос обычно проходит. */
 async function apiFetch(url, what, tries = 5) {
   let lastErr;
   for (let i = 0; i < tries; i++) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(`${what}: сервер ответил ${res.status}${body?.message ? ' — ' + body.message : ''}`);
-      }
-      return await res.json();
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) throw new Error(`${what}: сервер ответил ${res.status}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      return data;
     } catch (err) {
       lastErr = err;
-      if (/сервер ответил 4/.test(err.message)) break;   // ошибка запроса повтором не лечится
+      if (/сервер ответил 4/.test(err.message)) break;   // 4xx повтором не лечится
     }
   }
   throw lastErr;
 }
 
-/* Вызов функции базы. Ответ кладём в кэш браузера на 12 часов: на повторных заходах
-   сайт открывается сразу; «Обновить» (fresh) идёт мимо кэша. */
-async function rpc(fn, params = {}, fresh = false) {
-  const qs = new URLSearchParams(Object.entries(params)
-    .filter(([, v]) => v != null).map(([k, v]) => ['p_' + k, String(v)]));
-  const key = `rpc:${fn}?${qs}`;
+function unpack(page, into) {
+  const { cols, enc = [], dict = {}, rows } = page;
+  const coded = new Set(enc);
+  for (const values of rows) {
+    const row = {};
+    cols.forEach((col, i) => {
+      const v = values[i];
+      const raw = coded.has(col) && typeof v === 'number' ? dict[col][v] : v;
+      row[col] = NUM_KEYS.has(col) ? toNum(raw) : raw;
+    });
+    into.push(row);
+  }
+  return page.next;
+}
+
+function page(name, offset) {
+  const url = `${API_BASE}/sheets/${encodeURIComponent(name)}` + (offset ? `?offset=${offset}` : '');
+  return apiFetch(url, `Лист «${name}»`);
+}
+
+async function loadSheet(name) {
+  const first = await page(name, 0);
+  const rows = [];
+  unpack(first, rows);
+  if (first.next == null) return rows;
+
+  // сколько ещё порций — известно из total первой; тянем их разом, а не цепочкой
+  const step = first.next;
+  const offsets = [];
+  for (let o = step; o < first.total; o += step) offsets.push(o);
+  const rest = await Promise.all(offsets.map(o => page(name, o)));
+  for (const p of rest) unpack(p, rows);
+  return rows;
+}
+
+async function fetchSheet(name, fresh) {
+  if (!fresh) {
+    const cached = cacheRead(name);
+    if (cached) return cached;
+  }
+  const rows = await loadSheet(name);
+  const ts = Date.now();
+  noteDataTs(ts);
+  cacheWrite(name, rows, ts);
+  return rows;
+}
+
+/* ── Посчитанные таблицы с сервера ──
+   Зачёты, сводные, история мест и метрика считаются в Worker-е (cloud/season.js тем
+   же кодом, что лежит в js/*.js) и приезжают готовыми частями. Сырые протоколы этапов
+   фронт тянет только там, где без них не обойтись, — и только по требованию. */
+async function seasonPart(part, fresh) {
+  const key = `part:${state.division}:${part}`;
   if (!fresh) {
     const cached = cacheRead(key);
     if (cached) return cached;
   }
-  const data = await apiFetch(`${API_BASE}/rpc/${fn}?${qs}`, fn);
+  const url = `${API_BASE}/season/${state.year}/${state.division}/${part}`;
+  const data = await apiFetch(url, `Данные «${part}»`);
   const ts = Date.now();
   noteDataTs(ts);
   cacheWrite(key, data, ts);
   return data;
 }
 
-/* Сырые строки протокола в виде прежнего листа — нужны только калькулятору прогнозов */
-async function fetchSheet(name, fresh) {
-  const rows = await rpc('sheet', { name }, fresh);
-  return rows.map(r => Object.fromEntries(Object.entries(r)
-    .map(([k, v]) => [k, NUM_KEYS.has(k) ? toNum(v) : v])));
+/* Протоколы этапов: нужны вкладке «По этапам», карточкам, калькулятору и метрике.
+   Грузим один раз по требованию, а не на старте. */
+let rowsPromise = null;
+
+function ensureRows(fresh) {
+  if (fresh) rowsPromise = null;
+  if (rowsPromise) return rowsPromise;
+  const div = DIVISIONS[state.division];
+  rowsPromise = Promise.all([
+    fetchSheet(`${state.year} ${div.races}`, fresh),
+    fetchSheet(`${state.year} ${div.quals}`, fresh),
+  ]).then(([races, quals]) => {
+    state.races.rows = races;
+    state.quals.rows = quals;
+    state.races.rowsWithDuel = [...races, ...quals.filter(r => SPRINT_ROUNDS.has(parseFloat(r['Round'])))];
+    return state;
+  }).catch(err => { rowsPromise = null; throw err; });
+  return rowsPromise;
 }
 
 /* ── Round view ── */
@@ -202,6 +255,11 @@ function penMark(t) {
     .filter(Boolean).join(' · ').replace(/"/g, '&quot;');
   return `<span class="pen-mark"${why ? ` title="${why}"` : ''}>−${t.penalty}</span> `;
 }
+
+/* Накопительный итог команды: штраф входит в него начиная со своего этапа, до него
+   кривая и сводные идут чистыми очками. Штраф без этапа считается сезонным — с первого. */
+const penaltyBy = (t, round) =>
+  t.penalty && (t.penaltyRound == null || t.penaltyRound <= round) ? t.penalty : 0;
 
 /* Производителя в листах пишут по-разному (Chevrolet, Chevy, Chv) — цвет бейджа
    и линии графика один и тот же, поэтому приводим написание к классу из CSS. */

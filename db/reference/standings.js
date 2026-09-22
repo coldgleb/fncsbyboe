@@ -276,6 +276,65 @@ function buildPlayoffSet(standings, at) {
   return playoffSet;
 }
 
+function chaseOwnerSeedOrder(standingsAt26) {
+  const seeds = {};
+  let seed = 0;
+  for (const o of standingsAt26) {
+    if (seed >= 16) break;
+    seeds[o.car] = { seed: ++seed, points: CHASE_POINTS[seed - 1] };
+  }
+  return seeds;
+}
+
+function computeChaseOwnerStandings(rows) {
+  const seeds = chaseOwnerSeedOrder(computeOwnerStandings(rows.filter(r => r['Round'] <= CHASE_START)));
+  const base = computeOwnerStandings(rows);
+  const postMap = Object.fromEntries(
+    computeOwnerStandings(rows.filter(r => r['Round'] > CHASE_START)).map(o => [o.car, o]));
+
+  const empty = { wins: 0, firstWin: Infinity, posCounts: {} };
+  const merged = base.map(o => {
+    const sd = seeds[o.car];
+    if (!sd) return o;
+    const p = postMap[o.car] || empty;
+    return { ...o, total: sd.points + (p.total || 0), chaseSeed: sd.seed, chase: p };
+  }).sort((a, b) => standingsCmp(
+    { ...(a.chase || a), total: a.total }, { ...(b.chase || b), total: b.total }));
+
+  return renumber(merged);
+}
+
+/* П. 8.8.2–8.8.3: место в чемпионате для метрики. Зачётные — своё место, гости и не выходившие
+   на старт — последнее + 1. Не выходившие с непроходами на одних и тех же этапах разводятся
+   лучшей квалой; с разными наборами этапов — делят место. */
+function metricChampRanks(standings, qualRows) {
+  const ranks = {};
+  for (const s of standings) if (s.rank != null) ranks[s.driver] = s.rank;
+  const base = Math.max(0, ...Object.values(ranks)) + 1;
+  const noStart = {};
+  for (const r of qualRows) {
+    const d = r['Driver'], rnd = r['Round'];
+    if (!d || d in ranks || rnd == null || rnd === 0 || SPRINT_ROUNDS.has(rnd)) continue;
+    const g = noStart[d] ||= { rounds: new Set(), best: Infinity };
+    g.rounds.add(rnd);
+    if (r['Pos.'] != null && r['Pos.'] < g.best) g.best = r['Pos.'];
+  }
+  for (const s of standings) if (s.rank == null) ranks[s.driver] = base;
+  const key = d => [...noStart[d].rounds].sort((a, b) => a - b).join(',');
+  const rivals = Object.keys(noStart).filter(d => !isGuestDriver(d));
+  for (const d of Object.keys(noStart)) {
+    ranks[d] = isGuestDriver(d) ? base
+      : base + rivals.filter(o => key(o) === key(d) && noStart[o].best < noStart[d].best).length;
+  }
+  return ranks;
+}
+
+// П. 8.8: 50% место в гонке, 25% место в чемпионате, 25% место машины у владельцев; равенство — по чемпионату
+function computeNextMetric(people) {
+  return people.map(p => ({ ...p, metric: p.place * 0.5 + p.champRank * 0.25 + p.ownerRank * 0.25 }))
+    .sort((a, b) => a.metric - b.metric || a.champRank - b.champRank);
+}
+
 function avgPos(s) {
   return s.finishes ? (s.posSum / s.finishes).toFixed(1) : '—';
 }

@@ -3,6 +3,7 @@
     "yarn": "^1.22.22"
   },
   "devDependencies": {
-    "@spotify/portal-cli": "^0.4.3"
+    "@spotify/portal-cli": "^0.4.3",
+    "pg": "^8.23.0"
   }
 }

@@ -5,6 +5,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NASCAR Fantasy Championship</title>
+  <meta name="theme-color" content="#0c0e12">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;1,700;1,800&family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+  <script>
+    /* тема ставится до первой отрисовки, чтобы не было вспышки */
+    try { var t = localStorage.getItem('theme'); } catch (e) { }
+    document.documentElement.dataset.theme = t || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
   <link rel="stylesheet" href="css/style.css">
@@ -12,40 +23,47 @@
 
 <body>
 
-  <header>
-    <div style="font-size:2rem">🏁</div>
-    <div>
-      <h1>NASCAR FANTASY CHAMPIONSHIP</h1>
-      <small id="header-meta">Загрузка данных…</small>
-    </div>
-    <select class="chart-select" id="year-select" style="margin-left:auto;max-width:100px" title="Сезон"
-      onchange="switchYear(this.value)"></select>
-    <div class="round-toggle" title="Дивизион">
-      <button class="rtog-btn div-btn" data-div="star" onclick="switchDivision('star')">Star</button>
-      <button class="rtog-btn div-btn" data-div="open" onclick="switchDivision('open')">Open</button>
-    </div>
-    <button class="page-btn" onclick="init()" title="Перезагрузить данные">⟳ Обновить</button>
-  </header>
-
-  <main>
-    <div id="kpi-grid" class="kpi-grid">
-      <div class="kpi-card">
-        <div class="loading-state">
-          <div class="spinner"></div> Загрузка…
+  <header class="hero">
+    <div class="wrap">
+      <p class="eyebrow">Be on Edge &middot; Fantasy NASCAR Cup Series</p>
+      <h1>NASCAR Fantasy<br>Championship</h1>
+      <p class="lead" id="header-meta">Загрузка данных…</p>
+      <div id="kpi-grid" class="kpi-grid">
+        <div class="kpi-card">
+          <div class="loading-state">
+            <div class="spinner"></div> Загрузка…
+          </div>
         </div>
       </div>
     </div>
+  </header>
 
-    <div class="tabs">
-      <button class="tab-btn active" data-tab="races" onclick="switchTab('races')">Гонки</button>
-      <button class="tab-btn" data-tab="quals" onclick="switchTab('quals')">Квалификации</button>
-      <button class="tab-btn" data-tab="rounds" onclick="switchTab('rounds')">По этапам</button>
-      <button class="tab-btn" data-tab="teams" onclick="switchTab('teams')">Команды</button>
-      <button class="tab-btn" data-tab="ind" onclick="switchTab('ind')">Независимые</button>
-      <button class="tab-btn" data-tab="entries" onclick="switchTab('entries')">Метрика</button>
-      <button class="tab-btn" data-tab="golub" onclick="switchTab('golub')">им. Голубочкина</button>
-      <button class="tab-btn" data-tab="calc" onclick="switchTab('calc')">Калькулятор</button>
+  <div class="toolbar">
+    <div class="wrap toolbar-inner">
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="races" onclick="switchTab('races')">Гонки</button>
+        <button class="tab-btn" data-tab="quals" onclick="switchTab('quals')">Квалификации</button>
+        <button class="tab-btn" data-tab="rounds" onclick="switchTab('rounds')">По этапам</button>
+        <button class="tab-btn" data-tab="teams" onclick="switchTab('teams')">Команды</button>
+        <button class="tab-btn" data-tab="owners" onclick="switchTab('owners')">Владельцы</button>
+        <button class="tab-btn" data-tab="ind" onclick="switchTab('ind')">Независимые</button>
+        <button class="tab-btn" data-tab="entries" onclick="switchTab('entries')">Командная метрика</button>
+        <button class="tab-btn" data-tab="golub" onclick="switchTab('golub')">им. Голубочкина</button>
+        <button class="tab-btn" data-tab="calc" onclick="switchTab('calc')">Калькулятор</button>
+      </div>
+      <div class="toolbar-tools">
+        <select class="chart-select w-narrow" id="year-select" title="Сезон" onchange="switchYear(this.value)"></select>
+        <div class="round-toggle" title="Дивизион">
+          <button class="rtog-btn div-btn" data-div="star" onclick="switchDivision('star')">Star</button>
+          <button class="rtog-btn div-btn" data-div="open" onclick="switchDivision('open')">Open</button>
+        </div>
+        <button class="page-btn" id="theme-btn" onclick="toggleTheme()" title="Светлая / тёмная тема"></button>
+        <button class="page-btn" onclick="refreshData()" title="Загрузить свежие данные с листов">⟳ Обновить</button>
+      </div>
     </div>
+  </div>
+
+  <main>
 
     <div id="tab-races" class="tab-panel active">
       <div class="charts-grid">
@@ -248,10 +266,14 @@
           <div class="pivot-scroll" id="pivot-teams-pos"></div>
         </div>
       </div>
-      <div class="table-card" style="margin-top:14px">
+    </div>
+
+    <div id="tab-owners" class="tab-panel">
+      <div class="table-card">
         <div class="table-header">
           <h3>Зачёт владельцев — по номеру машины</h3>
           <div class="table-controls">
+            <div id="upto-owners"></div>
             <input class="search-input" type="search" placeholder="Поиск по номеру / пилоту…"
               oninput="filterOwners(this.value)">
             <button class="page-btn" onclick="exportOwnersXLSX()">⇩ Excel</button>
@@ -273,7 +295,7 @@
         </div>
         <div id="table-indTeams"></div>
       </div>
-      <div class="table-card" style="margin-top:14px">
+      <div class="table-card stacked">
         <div class="table-header">
           <h3>Независимые — Гонки</h3>
           <div class="table-controls">
@@ -284,7 +306,7 @@
         </div>
         <div id="table-indRaces"></div>
       </div>
-      <div class="table-card" style="margin-top:14px">
+      <div class="table-card stacked">
         <div class="table-header">
           <h3>Независимые — Квалификации</h3>
           <div class="table-controls">
@@ -345,7 +367,7 @@
     <div id="tab-rounds" class="tab-panel">
       <div class="round-bar">
         <label class="round-label">Этап</label>
-        <select class="chart-select" id="round-select" onchange="onRoundChange()" style="max-width:320px"></select>
+        <select class="chart-select w-wide" id="round-select" onchange="onRoundChange()"></select>
         <div class="round-toggle" id="round-toggle"></div>
       </div>
       <div class="table-card">
@@ -371,7 +393,6 @@
   </main>
 
   <script src="js/core.js"></script>
-  <script src="js/standings.js"></script>
   <script src="js/charts.js"></script>
   <script src="js/teams.js"></script>
   <script src="js/drivers.js"></script>
