@@ -40,7 +40,7 @@ $$;
 CREATE VIEW api.protocol AS
 SELECT
   r.id, r.season, r.division, r.session, r.round, r.duel,
-  r.round + coalesce(r.duel, 0) / 10.0 AS round_key,
+  trim_scale(r.round + coalesce(r.duel, 0) / 10.0) AS round_key,
   r.pos,
   p.id AS participant_id,
   p.name || CASE WHEN r.is_guest THEN ' (i)' ELSE '' END AS driver,
