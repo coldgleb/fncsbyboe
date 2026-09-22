@@ -154,7 +154,8 @@ async function fetchSheet(name, fresh) {
     const cached = cacheRead(name);
     if (cached) return cached;
   }
-  const rows = await loadSheet(name);
+  // JSONP иногда молча не отвечает (Google придерживает пачку запросов) — пробуем ещё раз
+  const rows = await loadSheet(name).catch(() => loadSheet(name));
   const ts = Date.now();
   noteDataTs(ts);
   cacheWrite(name, rows, ts);
