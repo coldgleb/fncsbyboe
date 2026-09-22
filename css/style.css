@@ -590,6 +590,17 @@ main {
   color: var(--text);
 }
 
+/* Место в квалификации и дуэли: прошёл дальше или нет */
+.pos-badge.made {
+  color: var(--up);
+  border-color: color-mix(in srgb, var(--up) 45%, transparent);
+}
+
+.pos-badge.missed {
+  color: var(--down);
+  border-color: color-mix(in srgb, var(--down) 45%, transparent);
+}
+
 /* Номер машины — тот же цвет, что у производителя */
 .car-badge {
   display: inline-block;
@@ -1247,7 +1258,7 @@ table[data-sort="auto"] th:hover {
   border: none;
   border-bottom: 1px solid var(--line);
   color: var(--text);
-  font: 800 26px var(--display);
+  font: 600 22px var(--display);
   text-transform: uppercase;
   padding: 4px 0;
   width: 100%;
@@ -1256,30 +1267,6 @@ table[data-sort="auto"] th:hover {
 
 #calc-root .race:focus {
   border-color: var(--accent);
-}
-
-#calc-root .card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 16px 18px;
-  margin-bottom: 14px;
-}
-
-#calc-root .tablecard {
-  padding: 8px;
-}
-
-#calc-root .sechd {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  font: 700 19px var(--display);
-  text-transform: uppercase;
-  color: var(--text);
-  margin-bottom: 12px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--line);
 }
 
 #calc-root .badge {
@@ -1514,6 +1501,7 @@ table[data-sort="auto"] th:hover {
   -webkit-overflow-scrolling: touch;
 }
 
+/* остальное таблица берёт от общей .standings-table */
 #calc-root .ptbl {
   border-collapse: collapse;
   width: 100%;

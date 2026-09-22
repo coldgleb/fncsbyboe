@@ -214,6 +214,26 @@ function computeTeamOf(raceRows, qualRows) {
 
 const teamOf = driver => state.teamOf?.[driver] || '—';
 
+/* Номер машины и марка — по последней проведённой гонке пилота (в сезоне номер меняется);
+   гонок не было — по последней квалификации. Гостевые заявки не в счёт: в зачёте пилот
+   показывается с номером своей команды. */
+function computeCarOf(raceRows, qualRows) {
+  const latest = rows => {
+    const m = {};
+    for (const r of rows) {
+      const d = r['Driver'], rnd = r['Round'], car = r['#'];
+      if (!d || r.guest || rnd == null || !car || car === '-' || car === '—') continue;
+      if (!(m[d]?.rnd > rnd)) m[d] = { rnd, car: String(car), mfr: r['M.'] || '' };
+    }
+    return m;
+  };
+  const race = latest(raceRows), qual = latest(qualRows);
+  return Object.fromEntries([...new Set([...Object.keys(qual), ...Object.keys(race)])]
+    .map(d => [d, race[d] || qual[d]]));
+}
+
+const carOf = driver => state.carOf?.[driver] || null;
+
 // Пересчитывает места 1..N, пропуская гостей: гость остаётся в списке на своём
 // по очкам месте, но самого номера места у него нет — он вне зачёта
 function renumber(list) {
@@ -230,16 +250,18 @@ function computeStandings(rows) {
     const d = r['Driver'];
     if (!d) continue;
     if (!map[d]) map[d] = {
-      driver: d, team: teamOf(d), car: r['#'] || '—', mfr: r['M.'] || '',
+      driver: d, team: teamOf(d),
+      car: carOf(d)?.car || r['#'] || '—', mfr: carOf(d)?.mfr || r['M.'] || '',
       isGuest: isGuestDriver(d),
       total: 0, sheetPts: 0, best: Infinity,
       wins: 0, firstWin: Infinity, posCounts: {}, roundPts: {},
       posSum: 0, finishes: 0, top5: 0, top10: 0, positions: []
     };
     const s = map[d];
-    const pts = scorePts(r['Pos.'], r['Round']);
+    // гостевая заявка пилота с командой очков ему не даёт (п. 9.6: их получает машина)
+    const pts = r.guest ? 0 : scorePts(r['Pos.'], r['Round']);
     s.total += pts;
-    if (r['Round'] !== 0) s.sheetPts += r['Points'] || 0;
+    if (r['Round'] !== 0 && !r.guest) s.sheetPts += r['Points'] || 0;
     const pos = r['Pos.'];
     // Дуэль приносит очки, но гоночным результатом не считается: ни победа, ни место, ни статистика.
     // Этап 0 (The Clash) не в счёт вообще нигде.
@@ -314,10 +336,19 @@ function computeTeamStandings(rows, withGuestOnly = false) {
     // Действует со своего этапа: на срезе до него команда идёт без штрафа
     const ded = state.deductions?.[t.team];
     const penalty = ded && (ded.round == null || ded.round <= at) ? ded.pts : 0;
+    // накопительный итог по этапам: штраф вычитается начиная со своего этапа
+    const cumPts = {};
+    let run = 0;
+    const cumRounds = state.races?.rounds?.length ? state.races.rounds
+      : Object.keys(roundPts).map(Number).sort((x, y) => x - y);
+    for (const rnd of cumRounds.filter(r => !SPRINT_ROUNDS.has(r))) {
+      run += roundPts[rnd] || 0;
+      cumPts[rnd] = run - (ded && (ded.round == null || ded.round <= rnd) ? ded.pts : 0);
+    }
     return {
       team: t.team, total: total - penalty, penalty, penaltyRound: ded?.round ?? null,
       penaltyReason: ded?.reason || '',
-      roundPts, roundBest, scorers, drivers: [...t.drivers],
+      roundPts, cumPts, roundBest, scorers, drivers: [...t.drivers],
       // команда, за которую ездят одни гости, в командном зачёте не участвует
       entered: [...t.drivers].some(d => !isGuestDriver(d)),
       bestPositions: t.positions.sort((a, b) => a - b)
@@ -337,10 +368,16 @@ function computeOwnerStandings(rows) {
     // Гость очков себе не приносит, но машине — приносит; «-» значит «без номера»
     if (car == null || car === '' || car === '-') continue;
     if (!map[car]) map[car] = {
-      car, total: 0, wins: 0, firstWin: Infinity,
+      car, total: 0, wins: 0, firstWin: Infinity, team: '—', mfr: '', lastRound: -Infinity,
       best: Infinity, posCounts: {}, positions: [], drivers: new Set()
     };
     const o = map[car];
+    // команда и производитель машины — по её последней заявке в сезоне
+    if (r['Round'] != null && r['Round'] >= o.lastRound) {
+      o.lastRound = r['Round'];
+      if (r['Team'] && r['Team'] !== '—' && r['Team'] !== 'Guest entry') o.team = r['Team'];
+      if (r['M.']) o.mfr = r['M.'];
+    }
     o.total += scorePts(r['Pos.'], r['Round']);
     if (r['Driver']) o.drivers.add(r['Driver']);
     const pos = r['Pos.'], rnd = r['Round'];
@@ -356,7 +393,7 @@ function computeOwnerStandings(rows) {
     }
   }
   return Object.values(map).sort(standingsCmp)
-    .map((o, i) => ({
+    .map(({ lastRound, ...o }, i) => ({
       ...o, rank: i + 1, drivers: [...o.drivers],
       top5: o.positions.sort((a, b) => a - b).slice(0, 5)
     }));
@@ -949,7 +986,7 @@ function computeGains() {
     const m = {};
     for (const r of rows) {
       const d = r['Driver'], rnd = r['Round'], pos = r['Pos.'];
-      if (!d || isGuestDriver(d) || rnd == null || pos == null || SPRINT_ROUNDS.has(rnd) || rnd === 0) continue;
+      if (!d || isGuestDriver(d) || r.guest || rnd == null || pos == null || SPRINT_ROUNDS.has(rnd) || rnd === 0) continue;
       // как в карточке пилота: если строк на этап несколько, берём лучшую
       if (m[d]?.[rnd] == null || pos < m[d][rnd]) (m[d] ||= {})[rnd] = pos;
     }
@@ -1623,12 +1660,12 @@ function computeGolub(rows) {
     const gp = field.find(r => isGolub(r['Driver'] || ''))?.['Pos.'];
     if (gp == null) continue;  // этап без него в зачёт не идёт
     // финишировал последним — очков не набрал никто, колонка была бы пустой
-    if (!field.some(x => x['Pos.'] > gp && x['Driver'] && !isGolub(x['Driver']) && !isGuestDriver(x['Driver']))) continue;
+    if (!field.some(x => x['Pos.'] > gp && x['Driver'] && !isGolub(x['Driver']) && !isGuestDriver(x['Driver']) && !x.guest)) continue;
     rounds.push(rnd);
     info[rnd] = { gp, n: field.length };
     for (const r of field) {
       const d = r['Driver'], pos = r['Pos.'];
-      if (!d || isGolub(d) || isGuestDriver(d)) continue;
+      if (!d || isGolub(d) || isGuestDriver(d) || r.guest) continue;
       const g = map[d] ||= { driver: d, team: teamOf(d), total: 0, cells: {} };
       // считаем участников, а не разницу позиций: в протоколе бывают пропуски в нумерации
       const pts = pos <= gp ? 0
@@ -2168,7 +2205,7 @@ function initRoundView() {
   return {
     state, DIVISIONS, SPRINT_ROUNDS, CHASE_START, DR_KEYS,
     scorePts, renumber, uniqueRounds, avgPos, qualEligible, buildPlayoffSet,
-    computeTeamOf, computeStandings, computeChaseStandings,
+    computeTeamOf, computeCarOf, computeStandings, computeChaseStandings,
     computeTeamStandings, computeOwnerStandings, computeChaseOwnerStandings,
     computeGolub, computeEntries, computeGains, buildPivotData,
     entriesRows, entriesRounds, metricChampRanks, computeNextMetric,

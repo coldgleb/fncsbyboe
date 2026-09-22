@@ -63,7 +63,6 @@ function renderEntries() {
       ${rounds.map(r => `<option value="${r}"${r === at ? ' selected' : ''}>${roundFullName(r)}</option>`).join('')}
     </select>
   </label>
-  <span class="upto-note">FULL TIME PARTICIPATION — только фулл-тайм машины, остальное — по всем прогнозам команды</span>
 </div>
 <div class="pivot-scroll"><table class="pivot-table entries-table" data-sort="auto">
 <thead>

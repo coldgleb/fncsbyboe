@@ -26,7 +26,7 @@ function teamTableHtml(standings, q) {
   <td class="r"><span class="pos-badge">${t.rank}</span></td>
   <td>
     <strong>${teamLink(t.team)}</strong>${coalMark(t.team)}
-    <div class="team-drivers">${t.drivers.sort().join(' · ')}</div>
+    <div class="team-drivers">${t.drivers.sort().map(driverLink).join(' · ')}</div>
   </td>
   <td class="r" title="${scorersTooltip(t)}">${penMark(t)}<strong>${t.total}</strong></td>
   <td class="r muted">${starts(t, 'races')} / ${starts(t, 'quals')}</td>
@@ -103,11 +103,12 @@ async function renderOwners() {
 
   let html = `<div class="table-scroll"><table class="standings-table" data-sort="auto"><thead><tr>
 <th class="r w-40">#</th>
-<th>Номер</th>
+<th class="r">Номер</th>
+<th>Команда</th>
+<th>Авт.</th>
 <th>Пилоты</th>
-<th class="r">Очки</th>
-<th class="r">Победы</th>
 <th class="r" title="Пять лучших финишей">Топ-5</th>
+<th class="r">Очки</th>
   </tr></thead><tbody>`;
 
   const page = state.ownerPage || 1;
@@ -116,11 +117,12 @@ async function renderOwners() {
     const rc = o.rank <= 3 ? `rank-${o.rank}` : '';
     html += `<tr class="${rc}">
   <td class="r"><span class="pos-badge">${o.rank}</span></td>
-  <td><strong>#${o.car}</strong></td>
-  <td class="team-text">${o.drivers.sort().join(' · ')}</td>
-  <td class="r"><strong>${o.total}</strong></td>
-  <td class="r">${o.wins > 0 ? `<strong class="win">${o.wins}</strong>` : '<span class="muted">—</span>'}</td>
+  <td class="r">${carBadge(o.car, o.mfr)}</td>
+  <td class="team-text">${teamLink(o.team)}${coalMark(o.team)}</td>
+  <td>${mfrBadge(o.mfr)}</td>
+  <td class="team-text">${o.drivers.sort().map(driverLink).join(' · ')}</td>
   <td class="r muted">${o.top5.join(' · ') || '—'}</td>
+  <td class="r"><strong>${o.total}</strong></td>
 </tr>`;
   }
   document.getElementById('table-owners').innerHTML = html + '</tbody></table></div>'
@@ -133,10 +135,11 @@ async function exportOwnersXLSX() {
   downloadTableXLSX((await fetchSlice('owners', at)).standings, [
     ['#', o => o.rank],
     ['Номер', o => o.car],
+    ['Команда', o => o.team],
+    ['Авт.', o => o.mfr],
     ['Пилоты', o => o.drivers.join(' · ')],
-    ['Очки', o => o.total],
-    ['Победы', o => o.wins],
     ['Топ-5', o => o.top5.join(' · ')],
+    ['Очки', o => o.total],
   ], 'Зачёт владельцев', `${exportSeriesLabel()} зачёт владельцев.xlsx`);
 }
 
@@ -178,9 +181,16 @@ function renderTeamPivot() {
       cum = t.cumPts[r] ?? cum;
       html += `<td title="${roundFullName(r)}: ${got} очк. · всего ${cum}">${got || '<span class="pos-none">—</span>'}</td>`;
     }
-    html += `<td class="total-cell">${penMark(t)}${t.total}</td></tr>`;
+    html += `<td class="total-cell">${t.total}</td></tr>`;
   }
   document.getElementById('pivot-teams').innerHTML = html + '</tbody></table>';
+  // штрафы показываем сноской: в самой таблице остаются только набранные очки
+  const penalties = state.teamPivot.filter(t => t.penalty);
+  document.getElementById('pivot-teams-note').innerHTML = penalties.length
+    ? 'Штрафы: ' + penalties.map(t => `<b>${t.team}</b> — снято ${t.penalty} очк.`
+      + (t.penaltyRound != null ? ` с ${fmtRoundNum(t.penaltyRound)} этапа` : '')
+      + (t.penaltyReason ? ` (${t.penaltyReason})` : '')).join('; ')
+    : '';
 }
 
 function filterTeamPivot(val) {

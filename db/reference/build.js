@@ -41,7 +41,7 @@ ${parts.join('\n')}
   return {
     state, DIVISIONS, SPRINT_ROUNDS, CHASE_START, DR_KEYS,
     scorePts, renumber, uniqueRounds, avgPos, qualEligible, buildPlayoffSet,
-    computeTeamOf, computeStandings, computeChaseStandings,
+    computeTeamOf, computeCarOf, computeStandings, computeChaseStandings,
     computeTeamStandings, computeOwnerStandings, computeChaseOwnerStandings,
     computeGolub, computeEntries, computeGains, buildPivotData,
     entriesRows, entriesRounds, metricChampRanks, computeNextMetric,

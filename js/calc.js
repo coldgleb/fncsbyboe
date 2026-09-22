@@ -371,25 +371,25 @@ function render(){
     }},label,...extra,state.sort?.key===key?el('span',{class:'sort-arrow'},state.sort.dir==='asc'?' ▲':' ▼'):null);
 
   // header
-  root.appendChild(el('div',{class:'hd'},el('div',{class:'flag'}),
-    el('div',{class:'htxt'},el('h1',{},'NASCAR · Прогнозы сокомандников'),
-      el('input',{class:'race',placeholder:'Название гонки',value:state.raceName,oninput:e=>{state.raceName=e.target.value;saveState(state);}}))));
+  root.appendChild(el('div',{class:'hd'},
+    el('input',{class:'race',placeholder:'Название гонки',value:state.raceName,
+      oninput:e=>{state.raceName=e.target.value;saveState(state);}})));
 
   renderSources(root);
   if(isStar())renderDuelPairs(root);
 
   // ---- participants table ----
-  const card=el('section',{class:'card tablecard'});
+  const card=el('section',{class:'table-card'});
 
-  // summary bar
-  const sumbar=el('div',{class:'sumbar'});
-  sumbar.appendChild(el('span',{class:'sumitem'},'Участников: '+P.length));
+  // шапка карточки: заголовок слева, факты гонки справа
+  const sumbar=el('div',{class:'table-controls sumbar'});
   if(ec!=null)sumbar.appendChild(el('span',{class:'sumitem fact-hd'},'Жёлтые: '+ec));
   if(er!=null)sumbar.appendChild(el('span',{class:'sumitem fact-hd'},'Сходы: '+er));
-  card.appendChild(sumbar);
+  card.appendChild(el('div',{class:'table-header'},
+    el('h3',{},'Участники · '+P.length),sumbar));
 
-  const wrap=el('div',{class:'tscroll'});
-  const tbl=el('table',{class:'ptbl'});
+  const wrap=el('div',{class:'table-scroll tscroll'});
+  const tbl=el('table',{class:'standings-table ptbl'});
 
   // thead
   const htr=el('tr',{},
@@ -591,14 +591,15 @@ function importData(){
 
 function renderSources(root){
   const L=feedLinks(state.year,state.series,state.raceId||'{race_id}');
-  const src=el('section',{class:'card'});
-  src.appendChild(el('div',{class:'sechd'},el('span',{},'Источники данных'),
-    el('span',{class:'badge'+(state.raceId?' ok':'')}, state.raceId?('race_id '+state.raceId):'race_id не задан')));
+  const src=el('section',{class:'table-card'});
+  src.appendChild(el('div',{class:'table-header'},el('h3',{},'Источники данных'),
+    el('div',{class:'table-controls'},
+      el('span',{class:'badge'+(state.raceId?' ok':'')}, state.raceId?('race_id '+state.raceId):'race_id не задан'))));
   const params=el('div',{class:'params'});
   params.appendChild(el('div',{class:'pgrp'},el('label',{},'Год'),
     el('input',{class:'pin',value:state.year,oninput:e=>{state.year=e.target.value.trim();},onchange:e=>{state.year=e.target.value.trim();saveState(state);render();}})));
   params.appendChild(el('div',{class:'pgrp'},el('label',{},'Серия'),
-    el('select',{class:'pin',onchange:e=>{state.series=e.target.value;saveState(state);render();}},
+    el('select',{class:'pin chart-select',onchange:e=>{state.series=e.target.value;saveState(state);render();}},
       el('option',{value:'1',...(state.series==='1'?{selected:'selected'}:{})},'1 · Cup'),
       el('option',{value:'2',...(state.series==='2'?{selected:'selected'}:{})},'2 · Xfinity'),
       el('option',{value:'3',...(state.series==='3'?{selected:'selected'}:{})},'3 · Trucks'))));
@@ -606,7 +607,7 @@ function renderSources(root){
   const raceKey=state.year+'|'+state.series;
   const raceGrp=el('div',{class:'pgrp'});
   raceGrp.appendChild(el('label',{},'Гонка'));
-  const rSel=el('select',{class:'pin',style:'width:320px',
+  const rSel=el('select',{class:'pin chart-select',style:'width:320px',
     onchange:e=>{const v=e.target.value;if(!v)return;state.raceId=v;saveState(state);render();}});
   const fillRaceSel=()=>{
     while(rSel.firstChild)rSel.removeChild(rSel.firstChild);
@@ -649,7 +650,7 @@ function renderSources(root){
   function linkRow(label,url,note,rdy){return el('div',{class:'lrow'},el('div',{class:'lhd'},el('span',{class:'lname'},label),note?el('span',{class:'lnote'},note):null,el('button',{class:'copy',onclick:()=>{navigator.clipboard&&navigator.clipboard.writeText(url);}},'копировать')),el('a',{class:'lnk'+(rdy?'':' dim2'),href:url,target:'_blank',rel:'noopener'},url));}
   src.appendChild(linkRow('Weekend Feed',L.weekend,'квалификация · стейджи · финиш · жёлтые · сходы',ready));
 
-  const loadBtn=el('button',{class:'parse',disabled:ready?null:'disabled',onclick:async(ev)=>{
+  const loadBtn=el('button',{class:'parse page-btn',disabled:ready?null:'disabled',onclick:async(ev)=>{
     const btn=ev.target,old=btn.textContent;btn.textContent='Загрузка…';btn.disabled=true;
     try{
       const t=await fetchFeed(L.weekend);
@@ -768,7 +769,7 @@ function setTeam(team){
 function teamSelect(){
   const teams=[...new Set(Object.values(sheets().drivers).map(d=>d.team).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ru'));
   return el('div',{class:'pgrp'},el('label',{},'Команда'),
-    el('select',{class:'pin',style:'width:220px',title:'Подставить всех пилотов команды — по месту в чемпионате',
+    el('select',{class:'pin chart-select',style:'width:220px',title:'Подставить всех пилотов команды — по месту в чемпионате',
       onchange:e=>{if(e.target.value)setTeam(e.target.value);}},
       el('option',{value:''},teams.length?'— команда —':'Загрузка…'),
       ...teams.map(t=>el('option',{value:t,...(t===state.team?{selected:'selected'}:{})},t))));
@@ -785,7 +786,7 @@ function sheetQualPlace(p){
 function roundSelect(){
   const q=DIVISIONS[calcKind].quals;
   return el('div',{class:'pgrp'},el('label',{},`Этап (${q})`),
-    el('select',{class:'pin',title:`Место в квалификации берётся с листа ${q} для этого этапа`,
+    el('select',{class:'pin chart-select',title:`Место в квалификации берётся с листа ${q} для этого этапа`,
       onchange:e=>{state.round=e.target.value;saveState(state);render();}},
       el('option',{value:''},calendar.length?'— не выбран —':'Загрузка…'),
       ...calendar.map(c=>el('option',{value:String(c.n),...(String(c.n)===String(state.round)?{selected:'selected'}:{})},c.n+' · '+c.name))));
@@ -801,8 +802,8 @@ fetchSheet(`${site.year} Calendar`).then(cal=>{
 // «#5 Larson»; без ростера имя — сам номер, не дублируем
 const shortDrv=numv=>{const d=driverData(numv);if(!d)return '—';const last=(d.name||'').split(' ').pop();return '#'+d.num+(last&&last[0]!=='#'?' '+last:'');};
 function renderDuelPairs(root){
-  const card=el('section',{class:'card'});
-  card.appendChild(el('div',{class:'sechd'},el('span',{},'Пары дуэлей'),
+  const card=el('section',{class:'table-card'});
+  card.appendChild(el('div',{class:'table-header'},el('h3',{},'Пары дуэлей'),
     el('span',{class:'badge'},'+2 за угаданную пару · квала и гонка отдельно')));
   const roster=combinedRoster().sort((a,b)=>+a.num-+b.num);
   state.duelPairs.forEach((pair,i)=>{

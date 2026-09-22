@@ -150,8 +150,8 @@ async function renderRoundMetric(roundNum) {
     .map(([place, m]) => `<tr class="${place <= 3 ? 'rank-' + place : ''}">
   <td class="r"><span class="pos-badge">${place}</span></td>
   <td><strong class="driver-link" onclick="openDriver('${jsArg(m.driver)}')">${m.driver}</strong></td>
-  <td class="team-text">${m.team}${coalMark(m.team)}</td>
-  <td><strong>#${m.car}</strong>${m.carNote ? ` <span class="hl coal-mark" title="${escAttr(noteText(m))}">*</span>` : ''}</td>
+  <td class="team-text">${teamLink(m.team)}${coalMark(m.team)}</td>
+  <td>${carBadge(m.car, state.carOf?.[m.driver]?.mfr)}${m.carNote ? ` <span class="hl coal-mark" title="${escAttr(noteText(m))}">*</span>` : ''}</td>
   <td class="r">${m.pos ?? `<span class="muted" title="Не прошёл квалификацию или не подавал прогноз — место ${m.place}">${m.place}</span>`}</td>
   <td class="r">${m.champRank}</td>
   <td class="r">${m.ownerRank}</td>
@@ -173,44 +173,46 @@ async function renderRoundStandings(kind, roundNum) {
 
   let head, body;
   if (kind === 'st-teams') {
+    const roster = t => t.roster || t.drivers.map(driver => ({ driver, mfr: '' }));
     roundExport = { rows: full, filename: roundExportName(roundNum), cols: [
-      ['#', t => t.rank], ['Команда', t => t.team], ['Очки', t => t.total],
-      ['Топ-10', t => t.bestPositions.slice(0, 10).join(' · ')],
+      ['#', t => t.rank], ['Команда', t => t.team],
+      ['Пилоты', t => roster(t).map(x => x.driver).join(' · ')], ['Очки', t => t.total],
     ] };
-    head = '<th>Команда</th><th class="r">Очки</th><th class="r" title="Десять лучших финишей пилотов команды">Топ-10</th>';
+    head = '<th>Команда</th><th title="Кто выступал за команду на этом этапе и раньше">Пилоты</th>'
+      + '<th class="r">Очки</th>';
     body = full.filter(t => roundHit(t.team, ...t.drivers))
       .map(t => [t.rank, deltaCell(prevPos[t.team], t.rank),
     `<td><strong>${teamLink(t.team)}</strong>${coalMark(t.team)}</td>
-   <td class="r" title="${scorersTooltip(t)}">${penMark(t)}<strong>${t.total}</strong></td>
-   <td class="r muted">${t.bestPositions.slice(0, 10).join(' · ') || '—'}</td>`]);
+   <td class="team-text">${roster(t).map(x => `${driverLink(x.driver)} ${mfrBadge(x.mfr)}`).join(' · ') || '—'}</td>
+   <td class="r" title="${scorersTooltip(t)}">${penMark(t)}<strong>${t.total}</strong></td>`]);
   } else if (kind === 'st-owners') {
     roundExport = { rows: full, filename: roundExportName(roundNum), cols: [
-      ['#', o => o.rank], ['Номер', o => o.car], ['Пилоты', o => o.drivers.join(' · ')],
-      ['Очки', o => o.total], ['Топ-5', o => o.top5.join(' · ')],
+      ['#', o => o.rank], ['Номер', o => o.car], ['Команда', o => o.team], ['Авт.', o => o.mfr],
+      ['Пилоты', o => o.drivers.join(' · ')], ['Очки', o => o.total],
     ] };
-    head = '<th>Номер</th><th>Пилоты</th><th class="r">Очки</th><th class="r" title="Пять лучших финишей">Топ-5</th>';
+    head = '<th class="r">Номер</th><th>Команда</th><th>Авт.</th><th>Пилоты</th><th class="r">Очки</th>';
     body = full.filter(o => roundHit(o.car, ...o.drivers))
       .map(o => [o.rank, deltaCell(prevPos[o.car], o.rank),
-    `<td><strong>#${o.car}</strong></td>
-   <td class="team-text">${[...o.drivers].sort().join(' · ')}</td>
-   <td class="r"><strong>${o.total}</strong></td>
-   <td class="r muted">${o.top5.join(' · ') || '—'}</td>`]);
+    `<td class="r">${carBadge(o.car, o.mfr)}</td>
+   <td class="team-text">${teamLink(o.team)}${coalMark(o.team)}</td>
+   <td>${mfrBadge(o.mfr)}</td>
+   <td class="team-text">${[...o.drivers].sort().map(driverLink).join(' · ')}</td>
+   <td class="r"><strong>${o.total}</strong></td>`]);
   } else {
     roundExport = { rows: full, filename: roundExportName(roundNum), cols: [
-      ['#', s => s.rank], ['Гонщик', s => s.driver], ['Команда', s => s.team],
-      ['Авт.', s => s.mfr], ['Очки', s => s.total], ['Победы', s => s.wins],
-      ['Топ-5', s => s.top5.join(' · ')],
+      ['#', s => s.rank], ['Номер', s => s.car], ['Гонщик', s => s.driver], ['Команда', s => s.team],
+      ['Авт.', s => s.mfr], ['Победы', s => s.wins], ['Очки', s => s.total],
     ] };
-    head = '<th>Гонщик</th><th>Команда</th><th>Авт.</th><th class="r">Очки</th><th class="r">Победы</th>'
-      + '<th class="r" title="Пять лучших финишей">Топ-5</th>';
+    head = '<th class="r">Номер</th><th>Гонщик</th><th>Команда</th><th>Авт.</th>'
+      + '<th class="r">Победы</th><th class="r">Очки</th>';
     body = full.filter(s => roundHit(s.driver, s.team))
       .map(s => [s.rank, deltaCell(prevPos[s.driver], s.rank),
-    `<td><strong class="driver-link" onclick="openDriver('${jsArg(s.driver)}')">${s.driver}</strong></td>
-   <td class="team-text">${s.team}${coalMark(s.team)}</td>
+    `<td class="r">${carBadge(s.car, s.mfr)}</td>
+   <td><strong>${driverLink(s.driver)}</strong></td>
+   <td class="team-text">${teamLink(s.team)}${coalMark(s.team)}</td>
    <td>${mfrBadge(s.mfr)}</td>
-   <td class="r"><strong>${s.total}</strong></td>
    <td class="r">${s.wins > 0 ? `<strong class="win">${s.wins}</strong>` : '<span class="muted">—</span>'}</td>
-   <td class="r muted">${s.top5.join(' · ') || '—'}</td>`]);
+   <td class="r"><strong>${s.total}</strong></td>`]);
   }
 
   document.getElementById('round-table').innerHTML = `<div class="table-scroll"><table class="standings-table" data-sort="auto"><thead><tr>
@@ -252,14 +254,15 @@ async function onRoundChange() {
      (в квале по метрике лучшие очки — наименьшие, это тоже учтено там). */
   const { rows } = await rpc('round_protocol', roundArgs(roundNum, { view: roundView }), state.fresh);
   const hitRow = r => roundHit(r['Driver'], r['Team'], r['#']);
-  const madeFmt = (v, r) => v == null ? DQ_MARK : `<span class="${r.made ? 'up' : 'down'}">${v}</span>`;
+  const madeFmt = (v, r) => v == null ? DQ_MARK
+    : `<span class="pos-badge ${r.made ? 'made' : 'missed'}">${v}</span>`;
   const pointsCol = { key: 'Points', label: 'Очки', cls: 'r', fmt: v => `<strong>${v ?? '—'}</strong>`, hl: true };
   const nascarCol = { key: 'nascar', label: 'NASCAR', cls: 'r', fmt: v => `<strong class="nascar-pts">${v}</strong>` };
   const drCols = ['DR1', 'DR2', 'DR3', 'DR4'].map(k => ({ key: k, label: k, cls: 'r', fmt: v => v ?? '—', hl: true }));
   const baseCols = [
-    { key: '#', label: '#', cls: 'r' },
-    { key: 'Driver', label: 'Пилот' },
-    { key: 'Team', label: 'Команда', fmt: v => `<span class="team-text">${v || '—'}${coalMark(v)}</span>` },
+    { key: '#', label: '#', cls: 'r', fmt: (v, r) => carBadge(v, r['M.']) },
+    { key: 'Driver', label: 'Пилот', fmt: v => `<strong>${driverLink(v)}</strong>` },
+    { key: 'Team', label: 'Команда', fmt: v => `<span class="team-text">${teamLink(v)}${coalMark(v)}</span>` },
     { key: 'M.', label: 'Авт.', fmt: v => mfrBadge(v) },
   ];
 
@@ -267,7 +270,7 @@ async function onRoundChange() {
   if (roundView === 'race') {
     title.textContent = `Гонка — ${name}`;
     cols = [
-      { key: 'Pos.', label: 'Поз.', cls: 'r', fmt: v => v == null ? DQ_MARK : v, hl: true },
+      { key: 'Pos.', label: 'Поз.', cls: 'r', fmt: v => v == null ? DQ_MARK : `<span class="pos-badge">${v}</span>`, hl: true },
       { key: 'delta', label: '±', cls: 'r', fmt: v => v == null ? '<span class="muted">—</span>'
           : v === 0 ? '<span class="muted">0</span>'
             : `<span class="${v > 0 ? 'up' : 'down'}">${v > 0 ? '+' : ''}${v}</span>` },

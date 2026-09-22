@@ -216,6 +216,13 @@ function carBadge(car, mfr) {
   return `<span class="car-badge${key ? ' ' + key : ''}">${car}</span>`;
 }
 
+/* Ссылка на карточку пилота — одинаково во всех таблицах, сводных и протоколах */
+function driverLink(driver, mode) {
+  if (!driver) return '—';
+  const arg = driver.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  return `<span class="driver-link" onclick="openDriver('${arg}'${mode ? `,'${mode}'` : ''})">${driver}</span>`;
+}
+
 function mfrBadge(mfr) {
   if (!mfr || mfr === '-') return '';
   return `<span class="mfr-badge ${mfrKey(mfr)}">${mfr}</span>`;

@@ -77,6 +77,7 @@ function applyMain(m) {
   state.guestByChange = new Set(m.guestByChange);
   state.deductions = m.deductions;
   state.teamOf = m.teamOf;
+  state.carOf = m.carOf || {};
   state.roundMaxPos = m.roundMaxPos;
   state.attendance = { races: setsOf(m.attendance.races), quals: setsOf(m.attendance.quals) };
   state.qualsParticipation = setsOf(m.qualsParticipation);

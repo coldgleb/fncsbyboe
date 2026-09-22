@@ -25,8 +25,8 @@ ${rounds.map(r => `<th title="${roundFullName(r)} · ${GOLUB} P${info[r].gp} и�
 
   for (const g of list) {
     html += `<tr class="${g.rank <= 3 ? 'rank-' + g.rank : ''}">
-  <td class="driver-cell"><span class="pos-badge">${g.rank}</span> ${g.driver}${coalMark(g.team)}
-  <div class="team-drivers">${g.team}</div></td>`;
+  <td class="driver-cell"><span class="pos-badge">${g.rank}</span> ${driverLink(g.driver, type === 'quals' ? 'quals' : null)}${coalMark(g.team)}
+  <div class="team-drivers">${teamLink(g.team)}</div></td>`;
     for (const r of rounds) {
       const c = g.cells[r];
       html += c == null

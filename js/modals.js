@@ -132,7 +132,7 @@ async function openTeam(team) {
     return `<tr>
       <td><span class="driver-link" title="Открыть результаты этапа" onclick="goToRound(${r})">${roundFullName(r)}</span></td>
       <td>${cells}</td>
-      <td class="team-text">${bestOfRound.map(x => x.driver).join(' · ') || '—'}</td>
+      <td class="team-text">${bestOfRound.map(x => driverLink(x.driver)).join(' · ') || '—'}</td>
       <td class="r">${got || '—'}</td>
       <td class="r">${rr == null ? '—' : `<span class="pos-badge">${rr}</span>`}</td>
       <td class="r"><strong>${cum}</strong></td>
@@ -144,7 +144,7 @@ async function openTeam(team) {
 <div class="modal-head">
   <div>
     <h2>${team}${coalMark(team)}</h2>
-    <div class="team-text">${t.drivers.slice().sort().join(' · ')}</div>
+    <div class="team-text">${t.drivers.slice().sort().map(driverLink).join(' · ')}</div>
   </div>
   <button class="modal-close" onclick="closeDriver()" title="Закрыть (Esc)">×</button>
 </div>

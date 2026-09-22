@@ -456,7 +456,7 @@ function computeGains() {
     const m = {};
     for (const r of rows) {
       const d = r['Driver'], rnd = r['Round'], pos = r['Pos.'];
-      if (!d || isGuestDriver(d) || rnd == null || pos == null || SPRINT_ROUNDS.has(rnd) || rnd === 0) continue;
+      if (!d || isGuestDriver(d) || r.guest || rnd == null || pos == null || SPRINT_ROUNDS.has(rnd) || rnd === 0) continue;
       // как в карточке пилота: если строк на этап несколько, берём лучшую
       if (m[d]?.[rnd] == null || pos < m[d][rnd]) (m[d] ||= {})[rnd] = pos;
     }

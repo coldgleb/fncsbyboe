@@ -10,6 +10,31 @@
 
 const DR_KEYS_LOCAL = ['DR1', 'DR2', 'DR3', 'DR4'];
 
+/* Гостевые заявки пилота, который выступает и за команду: в листах это две записи —
+   «Имя» и «Имя (i)». Человек один, поэтому имя гостевой строки приводим к обычному, а саму
+   строку помечаем (r.guest) — очков она ему и его команде не приносит (их получает машина,
+   п. 9.6), но результат остаётся в статистике и в сводных. Метка «(i)» сохраняется только
+   у тех, кто в дивизионе выступал одними гостевыми заявками. */
+function mergeGuestEntries(...rowSets) {
+  const rows = rowSets.flat();
+  const own = new Set(), guest = new Set();
+  for (const r of rows) {
+    const d = r['Driver'];
+    if (!d) continue;
+    (d.endsWith(' (i)') ? guest : own).add(d.endsWith(' (i)') ? d.slice(0, -4) : d);
+  }
+  const merged = new Set([...guest].filter(d => own.has(d)));
+  for (const r of rows) {
+    const d = r['Driver'];
+    if (!d || !d.endsWith(' (i)')) continue;
+    const base = d.slice(0, -4);
+    if (!merged.has(base)) continue;
+    r['Driver'] = base;
+    r.guest = true;
+  }
+  return merged;
+}
+
 // Посчитанный сезон держим готовым: пересчёт нужен только на новых данных
 const seasons = {};
 
@@ -45,7 +70,9 @@ async function buildSeason(year, division, fresh) {
   st.roundAbb = Object.fromEntries(
     roundRows.filter(r => r['#'] != null && r['Abb.']).map(r => [String(r['#']), r['Abb.']]));
   st.guestByChange = new Set(changeRows.filter(r => r.B === div.label && r.A).map(r => r.A));
+  mergeGuestEntries(racesRows, qualsRows);
   st.teamOf = L.computeTeamOf(racesRows, qualsRows);
+  st.carOf = L.computeCarOf(racesRows, qualsRows);
 
   const duelRows = qualsRows.filter(r => L.SPRINT_ROUNDS.has(parseFloat(r['Round'])));
   const racesRowsWithDuel = [...racesRows, ...duelRows];
@@ -79,7 +106,8 @@ async function buildSeason(year, division, fresh) {
   st.qualsParticipation = {};
   for (const r of qualsRows) {
     const d = r['Driver'], rnd = r['Round'];
-    if (!d || L.isGuestDriver(d) || rnd == null || L.SPRINT_ROUNDS.has(rnd) || rnd === 0) continue;
+    // ценз квалификаций — по зачётным заявкам: гостевая в него не идёт
+    if (!d || L.isGuestDriver(d) || r.guest || rnd == null || L.SPRINT_ROUNDS.has(rnd) || rnd === 0) continue;
     (st.qualsParticipation[d] ||= new Set()).add(rnd);
   }
 
@@ -287,7 +315,20 @@ function roundStandings(s, round, kind) {
   if (kind === 'teams') {
     const rows = L.computeTeamStandings(upTo(n));
     const prev = prevRound ? L.computeTeamStandings(upTo(prevRound)) : [];
-    return { rows, prevRank: Object.fromEntries(prev.map(t => [t.team, t.rank])) };
+    // кто выступал за команду на этом этапе и раньше — с марками своих машин
+    const roster = {};
+    for (const r of upTo(n)) {
+      const team = r['Team'], d = r['Driver'];
+      if (!team || team === '—' || team === 'Guest entry' || !d) continue;
+      (roster[team] ||= new Map()).set(d, st.carOf?.[d]?.mfr || r['M.'] || '');
+    }
+    return {
+      rows: rows.map(t => ({
+        ...t,
+        roster: [...(roster[t.team] || new Map())].map(([driver, mfr]) => ({ driver, mfr })),
+      })),
+      prevRank: Object.fromEntries(prev.map(t => [t.team, t.rank])),
+    };
   }
   if (kind === 'owners') {
     const rows = ownersUpTo(s, n, 'auto');
@@ -426,7 +467,7 @@ function seasonSummary(s) {
     metricQuals: setArr(st.metricQuals),
     coalitions: setArr(st.coalitions),
     guestByChange: setArr(st.guestByChange),
-    deductions: st.deductions, teamOf: st.teamOf, roundMaxPos: st.roundMaxPos,
+    deductions: st.deductions, teamOf: st.teamOf, carOf: st.carOf, roundMaxPos: st.roundMaxPos,
     attendance: { races: mapOfSets(st.attendance.races), quals: mapOfSets(st.attendance.quals) },
     qualsParticipation: mapOfSets(st.qualsParticipation),
   };
