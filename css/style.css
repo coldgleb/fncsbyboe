@@ -39,7 +39,7 @@
   --mfr-chevy: #f5d90a;
   --mfr-ford: #5aa9ff;
 
-  --display: 'Barlow Condensed', 'Arial Narrow', 'Roboto Condensed', sans-serif;
+  --display: Oswald, 'Arial Narrow', 'Roboto Condensed', sans-serif;
   --sans: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -132,8 +132,17 @@ h3 {
   padding-inline: 20px;
 }
 
+.hero-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 10px;
+}
+
 .eyebrow {
-  margin-bottom: 6px;
+  margin-bottom: 0;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: .12em;
@@ -142,7 +151,6 @@ h3 {
 
 .hero h1 {
   font-size: clamp(32px, 6vw, 60px);
-  font-style: italic;
   font-weight: 800;
   line-height: .95;
   text-transform: uppercase;
@@ -178,7 +186,7 @@ h3 {
 
 .kpi-value {
   order: 1;
-  font: italic 800 38px/1 var(--display);
+  font: 800 38px/1 var(--display);
   color: var(--accent);
 }
 
@@ -424,7 +432,6 @@ main {
 .pivot-card>h3,
 .chart-header h3 {
   font: 700 22px var(--display);
-  font-style: italic;
   text-transform: uppercase;
   color: var(--text);
   letter-spacing: .02em;
@@ -483,7 +490,8 @@ main {
 .round-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-family: var(--display);
+  font-size: 14px;
 }
 
 .standings-table th,
@@ -551,7 +559,7 @@ main {
   padding: 0 4px;
   border-radius: 5px;
   background: var(--surface2);
-  font: italic 800 17px/1 var(--display);
+  font: 800 17px/1 var(--display);
   font-variant-numeric: tabular-nums;
 }
 
@@ -579,6 +587,19 @@ main {
   font: 700 13px var(--display);
   text-transform: uppercase;
   white-space: nowrap;
+  color: var(--text);
+}
+
+/* Номер машины — тот же цвет, что у производителя */
+.car-badge {
+  display: inline-block;
+  min-width: 26px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--c, var(--muted)) 22%, var(--surface2));
+  border: 1px solid color-mix(in srgb, var(--c, var(--muted)) 55%, transparent);
+  font: 600 13px var(--display);
+  text-align: center;
   color: var(--text);
 }
 
@@ -644,7 +665,7 @@ main {
 
 .nascar-pts {
   color: var(--accent);
-  font: italic 800 17px var(--display);
+  font: 800 17px var(--display);
 }
 
 /* Чейз */
@@ -715,7 +736,8 @@ table[data-sort="auto"] th:hover {
 
 .pivot-table {
   border-collapse: collapse;
-  font-size: 12px;
+  font-family: var(--display);
+  font-size: 13px;
   white-space: nowrap;
 }
 
@@ -744,6 +766,17 @@ table[data-sort="auto"] th:hover {
   text-align: center;
 }
 
+.pivot-note {
+  margin-top: 10px;
+  color: var(--muted);
+  font: 400 12px var(--sans);
+}
+
+.pivot-note b {
+  color: var(--text2);
+  font-weight: 600;
+}
+
 .pivot-table td.driver-cell {
   position: sticky;
   left: 0;
@@ -763,7 +796,7 @@ table[data-sort="auto"] th:hover {
 }
 
 .pivot-table td.total-cell {
-  font: italic 800 17px var(--display);
+  font: 800 17px var(--display);
   font-variant-numeric: tabular-nums;
   color: var(--text);
   border-left: 1px solid var(--line);
@@ -774,7 +807,6 @@ table[data-sort="auto"] th:hover {
 .pivot-table thead tr.grp-row th {
   position: static;
   color: var(--text);
-  font-style: italic;
   font-size: 15px;
   border-left: 1px solid var(--line);
   padding-top: 10px;
@@ -796,7 +828,7 @@ table[data-sort="auto"] th:hover {
 
 .entries-table td.metric-col {
   color: var(--text);
-  font: italic 800 16px var(--display);
+  font: 800 16px var(--display);
   border-right: 1px solid var(--line);
 }
 
@@ -816,7 +848,7 @@ table[data-sort="auto"] th:hover {
   border-left: 3px solid var(--c);
   background: color-mix(in srgb, var(--c) 15%, var(--surface2));
   color: var(--c);
-  font: italic 800 15px/1 var(--display);
+  font: 800 15px/1 var(--display);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1125,7 +1157,6 @@ table[data-sort="auto"] th:hover {
 
 .modal-head h2 {
   font-size: 30px;
-  font-style: italic;
   font-weight: 800;
   text-transform: uppercase;
   line-height: 1.05;
@@ -1178,7 +1209,7 @@ table[data-sort="auto"] th:hover {
 }
 
 .modal-stat .v {
-  font: italic 800 26px/1.1 var(--display);
+  font: 800 26px/1.1 var(--display);
   margin-top: 4px;
 }
 
@@ -1216,7 +1247,7 @@ table[data-sort="auto"] th:hover {
   border: none;
   border-bottom: 1px solid var(--line);
   color: var(--text);
-  font: italic 800 26px var(--display);
+  font: 800 26px var(--display);
   text-transform: uppercase;
   padding: 4px 0;
   width: 100%;
@@ -1244,7 +1275,6 @@ table[data-sort="auto"] th:hover {
   justify-content: space-between;
   align-items: baseline;
   font: 700 19px var(--display);
-  font-style: italic;
   text-transform: uppercase;
   color: var(--text);
   margin-bottom: 12px;
@@ -1630,7 +1660,7 @@ table[data-sort="auto"] th:hover {
 
 #calc-root .td-total {
   text-align: right;
-  font: italic 800 20px var(--display);
+  font: 800 20px var(--display);
   color: var(--pts);
   padding-top: 8px;
 }

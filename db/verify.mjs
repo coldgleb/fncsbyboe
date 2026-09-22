@@ -2,7 +2,15 @@
    Замороженный JS-расчёт (db/reference/, как было в js/ до переноса) — эталон: на тех же данных из
    базы он считает зачёты, а функции схемы api должны дать ровно то же на каждом
    этапе, в обоих дивизионах и в каждом режиме. Любое расхождение печатается.
-   Подключение — из PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE. */
+   Подключение — из PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE.
+
+   Два отличия от эталона сделаны намеренно и поэтому из сверки исключены:
+   1) пилот с заявкой от команды больше не двоится на «Имя» и «Имя (i)» — гостевые
+      этапы приписаны ему же и очков не приносят (MERGED ниже: у таких пилотов
+      сходятся место и очки, а статистика мест шире эталонной на гостевые этапы);
+   2) номер машины и марка берутся из последней гонки, а не из первой строки сезона
+      (поля car/mfr в сверке не участвуют).
+   Эталон при этом работает как раньше: имена ему отдаются с прежней меткой «(i)». */
 
 import pg from 'pg';
 import { makeLogic } from './reference/logic.gen.js';
@@ -14,12 +22,14 @@ await db.connect();
 // строки протокола в формате листов и в том порядке, в каком их видел сайт
 async function sheetRows(division, sessions) {
   const { rows } = await db.query(`
-    SELECT round_key, pos, car, driver, team, mfr, ql, dr1, dr2, dr3, dr4, cau, ret, mn, due, points
+    SELECT round_key, pos, car, driver, is_guest, team, mfr, ql, dr1, dr2, dr3, dr4, cau, ret, mn, due, points
       FROM api.protocol
      WHERE season = $1 AND division = $2 AND session = ANY($3)
      ORDER BY round, duel NULLS FIRST, pos IS NULL, pos, id`, [SEASON, division, sessions]);
   return rows.map(r => ({
-    'Round': Number(r.round_key), 'Pos.': r.pos, '#': r.car, 'Driver': r.driver, 'Team': r.team,
+    // эталону — прежнее имя с меткой гостя
+    'Round': Number(r.round_key), 'Pos.': r.pos, '#': r.car,
+    'Driver': r.driver + (r.is_guest && !r.driver.endsWith(' (i)') ? ' (i)' : ''), 'Team': r.team,
     'M.': r.mfr, 'QL': r.ql, 'DR1': r.dr1, 'DR2': r.dr2, 'DR3': r.dr3, 'DR4': r.dr4,
     'CAU': r.cau, 'RET': r.ret, 'MN': r.mn, 'DUE': r.due, 'Points': r.points,
   }));
@@ -56,17 +66,34 @@ async function jsState(division) {
   return { L, state };
 }
 
-const FIELDS = ['driver', 'rank', 'total', 'wins', 'best', 'firstWin', 'top5', 'top10',
-  'finishes', 'posSum', 'sheetPts', 'car', 'mfr', 'team', 'isGuest'];
+const FIELDS = ['driver', 'rank', 'total', 'team', 'isGuest'];
+// статистика мест у сведённых пилотов шире эталонной — гостевые этапы теперь их
+const STAT_FIELDS = ['wins', 'firstWin', 'best', 'top5', 'top10', 'finishes', 'posSum', 'sheetPts'];
 const norm = (k, v) => (v === Infinity || v === undefined ? null : v);
 
+const mergedCache = {};
+const mergedRef = async division => (mergedCache[division] ??= await mergedDrivers(division));
+
+async function mergedDrivers(division) {
+  const { rows } = await db.query(`
+    SELECT DISTINCT pr.driver FROM api.protocol pr
+     WHERE pr.season = $1 AND pr.division = $2 AND pr.is_guest AND NOT pr.guest_entry`,
+    [SEASON, division]);
+  return new Set(rows.map(r => r.driver));
+}
+// у эталона такой пилот — две записи; гостевую убираем, чтобы строки сошлись
+const dropGuestTwins = (list, merged, name = r => r.driver) =>
+  list.filter(r => !(name(r).endsWith(' (i)') && merged.has(name(r).slice(0, -4))));
+
 let checks = 0, fails = 0;
-function compare(label, js, sql) {
+function compare(label, js, sql, merged = new Set()) {
   checks++;
+  js = dropGuestTwins(js, merged);
   const problems = [];
   if (js.length !== sql.length) problems.push(`строк: JS ${js.length}, SQL ${sql.length}`);
   for (let i = 0; i < Math.min(js.length, sql.length); i++) {
-    for (const f of FIELDS) {
+    const fields = merged.has(js[i].driver) ? FIELDS : [...FIELDS, ...STAT_FIELDS];
+    for (const f of fields) {
       const a = norm(f, js[i][f]), b = norm(f, sql[i][f]);
       if (a !== b && !(typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) < 1e-9)) {
         problems.push(`#${i + 1} ${f}: JS=${JSON.stringify(a)} SQL=${JSON.stringify(b)} (${js[i].driver})`);
@@ -81,13 +108,14 @@ function compare(label, js, sql) {
 // ── личный зачёт, регулярный (без Чейза), на каждый этап ──
 for (const division of ['open', 'star']) {
   const { L, state } = await jsState(division);
+  const merged = await mergedDrivers(division);
   for (const [session, rowsKey, roundsKey] of [['race', 'rowsWithDuel', 'races'], ['qual', 'rows', 'quals']]) {
     const rounds = state[roundsKey].rounds.filter(r => !L.SPRINT_ROUNDS.has(r));
     for (const at of rounds) {
       const js = L.computeStandings(state[roundsKey][rowsKey].filter(r => r['Round'] < at + 1));
       const { rows: sql } = await db.query(
         'SELECT * FROM api.standings_ranked($1, $2, $3, $4)', [SEASON, division, session, at]);
-      compare(`${division} ${session} регулярный после ${at}`, js, sql);
+      compare(`${division} ${session} регулярный после ${at}`, js, sql, merged);
     }
   }
 }
@@ -95,13 +123,15 @@ for (const division of ['open', 'star']) {
 // ── личный зачёт с Чейзом: срезы после 26 этапа ──
 for (const division of ['open', 'star']) {
   const { L, state } = await jsState(division);
+  const merged = await mergedDrivers(division);
   for (const [session, rowsKey, roundsKey] of [['race', 'rowsWithDuel', 'races'], ['qual', 'rows', 'quals']]) {
     const rounds = state[roundsKey].rounds.filter(r => !L.SPRINT_ROUNDS.has(r) && r > L.CHASE_START);
     for (const at of rounds) {
-      const js = L.computeChaseStandings(state[roundsKey][rowsKey].filter(r => r['Round'] < at + 1));
+      const js = dropGuestTwins(
+        L.computeChaseStandings(state[roundsKey][rowsKey].filter(r => r['Round'] < at + 1)), merged);
       const { rows: sql } = await db.query(
         'SELECT * FROM api.standings_chase($1, $2, $3, $4)', [SEASON, division, session, at]);
-      compare(`${division} ${session} Чейз после ${at}`, js, sql);
+      compare(`${division} ${session} Чейз после ${at}`, js, sql, merged);
       // посев и победы в Чейзе (тай-брейк внутри Чейза) — отдельно
       checks++;
       const bad = js.findIndex((r, i) => (r.chaseSeed ?? null) !== (sql[i]?.chaseSeed ?? null)
@@ -129,7 +159,8 @@ for (const division of ['open', 'star']) {
         const a = norm(f, js[i][f]) ?? null, b = norm(f, sql[i][f]) ?? null;
         if (a !== b) { problems.push(`#${i + 1} ${f}: JS=${JSON.stringify(a)} SQL=${JSON.stringify(b)} (#${js[i].car})`); break; }
       }
-      if (JSON.stringify(js[i].drivers) !== JSON.stringify(sql[i].drivers)
+      const plain = ds => [...new Set(ds.map(d => d.endsWith(' (i)') ? d.slice(0, -4) : d))];
+      if (JSON.stringify(plain(js[i].drivers)) !== JSON.stringify(plain(sql[i].drivers))
         || JSON.stringify(js[i].top5) !== JSON.stringify(sql[i].top5)) {
         problems.push(`#${i + 1} пилоты/топ-5 (#${js[i].car})`);
       }
@@ -411,7 +442,8 @@ for (const division of ['open', 'star']) {
           : (playoffSet.has(s.driver) ? cutoffDriver : lastChase);
         return ref ? s.total - ref.total : null;
       };
-      const js = all.map(s => [s.driver, playoffSet.has(s.driver), afterChase?.driver === s.driver, gap(s)]);
+      const js = dropGuestTwins(all, await mergedRef(division))
+        .map(s => [s.driver, playoffSet.has(s.driver), afterChase?.driver === s.driver, gap(s)]);
       const sql = (await db.query('SELECT api.slice($1,$2,$3,$4) s', [SEASON, division, session, at])).rows[0].s
         .standings.map(s => [s.driver, s.playoff, s.cutoff, s.gap]);
       same(`${division} ${session} граница Чейза и ± после ${at}`, JSON.stringify(js), JSON.stringify(sql));

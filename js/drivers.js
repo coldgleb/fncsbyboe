@@ -17,16 +17,10 @@ function driverTooltip(s) {
 const roundsOf = type => (/quals/i.test(type) ? state.quals : state.races).rounds
   .filter(r => !SPRINT_ROUNDS.has(r));
 
-const isIndep = team => team && team !== '—' && !state.coalitions?.has(team);
-
-// Реальный Чейз (очки сброшены на сетку) — только после 26 этапа: до этого ручной
-// выбор «Чейз» не действует, сколько бы раз его ни включали на позднем срезе.
-// Отсечка топ-16 при этом остаётся на любом этапе. У независимых Чейза нет вообще.
-const isChaseMode = (type, n) => {
-  if (type.startsWith('ind')) return false;
-  if (n <= CHASE_START) return false;
-  return state.chaseView[type] !== 'regular';
-};
+/* Реальный Чейз (очки сброшены на сетку) — только после 26 этапа: до этого ручной
+   выбор «Чейз» не действует, сколько бы раз его ни включали на позднем срезе.
+   Отсечка топ-16 при этом остаётся на любом этапе. */
+const isChaseMode = (type, n) => n > CHASE_START && state.chaseView[type] !== 'regular';
 
 /* Срез зачёта на выбранный этап считает база (api.slice): места, «± Чейз», граница
    Чейза. Ответ кладём в state.slices — повторный показ той же таблицы мгновенный. */
@@ -80,9 +74,8 @@ async function renderTable(type) {
     ? all.filter(s => s.driver.toLowerCase().includes(q) || s.team.toLowerCase().includes(q))
     : all;
 
-  // Граница Чейза (топ-16), линия отсечки и «± Чейз» приходят из базы; у независимых их нет
-  const withChase = !type.startsWith('ind');
-  const isChase = withChase && isChaseMode(type, at);
+  // Граница Чейза (топ-16), линия отсечки и «± Чейз» приходят из базы
+  const isChase = isChaseMode(type, at);
   const gapCell = s => {
     if (s.gap == null) return '<span class="muted">—</span>';
     if (s.gap === 0) return '<span class="muted">0</span>';
@@ -121,7 +114,7 @@ async function renderTable(type) {
     </select>
   </label>
   ${isLast ? '' : '<span class="upto-note">срез сезона: Чейз и тай-брейки — на этот этап</span>'}
-  ${!type.startsWith('ind') && at > CHASE_START ? `
+  ${at > CHASE_START ? `
   <div class="round-toggle inline">
     <button class="rtog-btn${!isChase ? ' rtog-active' : ''}" onclick="setChaseView('${type}','regular')">Регулярный сезон</button>
     <button class="rtog-btn${isChase ? ' rtog-active' : ''}" onclick="setChaseView('${type}','chase')">Чейз</button>
@@ -135,11 +128,12 @@ async function renderTable(type) {
   html += `<div class="table-scroll"><table class="standings-table"><thead><tr>
 ${sortTh('rank', '#', '', 'r w-40')}
 <th class="r w-44" title="Изменение места к прошлому этапу">±</th>
+${sortTh('car', '#', 'title="Номер машины по последней проведённой гонке"', 'r w-44')}
 ${sortTh('driver', 'Гонщик', '', '')}
 ${sortTh('team', 'Команда', '', '')}
 ${sortTh('mfr', 'Авт.', '', '')}
 ${sortTh('total', 'Очки')}
-${withChase ? sortTh('chase', '± Чейз', 'title="В Чейзе — преимущество над первым вне Чейза; вне Чейза — отставание от последнего из Чейза"') : ''}
+${sortTh('chase', '± Чейз', 'title="В Чейзе — преимущество над первым вне Чейза; вне Чейза — отставание от последнего из Чейза"')}
 ${sortTh('wins', 'Победы', 'title="Количество побед (тай-брейк 1)"')}
 ${sortTh('starts', 'Гонок / Квал.', 'title="Проходов в гонку / участий в квалификации"')}
 ${sortTh('best', 'Лучш.')}
@@ -164,11 +158,12 @@ ${sortTh('best', 'Лучш.')}
     html += `<tr class="${rc}" title="${tb}">
   <td class="r"><span class="pos-badge"${sort && place != null ? ` title="Место в зачёте: ${s.rank}"` : ''}>${place ?? '—'}</span></td>
   <td class="r">${s.isGuest ? '<span class="muted">—</span>' : deltaCell(prevRank[s.driver], s.rank)}</td>
+  <td class="r">${carBadge(s.car, s.mfr)}</td>
   <td><strong class="driver-link" onclick="openDriver('${s.driver.replace(/'/g, "\\'").replace(/"/g, '&quot;')}'${/quals/i.test(type) ? ",'quals'" : ''})">${s.driver}</strong></td>
-  <td class="team-text">${s.team}${coalMark(s.team)}</td>
+  <td class="team-text">${teamLink(s.team)}${coalMark(s.team)}</td>
   <td>${mfrBadge(s.mfr)}</td>
   <td class="r"><strong>${s.total}</strong></td>
-  ${withChase ? `<td class="r">${gapCell(s)}</td>` : ''}
+  <td class="r">${gapCell(s)}</td>
   <td class="r">${winsCell}</td>
   <td class="r muted">${starts('races', s.driver)} / ${starts('quals', s.driver)}</td>
   <td class="r muted">${s.best == null ? '—' : 'P' + s.best}</td>
@@ -184,6 +179,7 @@ ${sortTh('best', 'Лучш.')}
 
 const SORT_KEYS = {
   rank: s => s.rank,
+  car: s => (/^\d+$/.test(s.car) ? Number(s.car) : Infinity),
   driver: s => s.driver,
   team: s => s.team,
   mfr: s => s.mfr,
@@ -211,10 +207,7 @@ function filterTable(type, val) {
 }
 
 // Имя листа и часть имени файла для каждого из четырёх личных зачётов
-const STANDINGS_SHEET = {
-  races: 'Зачёт гонок', quals: 'Зачёт квалификаций',
-  indRaces: 'Независимые гонки', indQuals: 'Независимые квалификации',
-};
+const STANDINGS_SHEET = { races: 'Зачёт гонок', quals: 'Зачёт квалификаций' };
 
 // Выгружает весь зачёт целиком (тот же срез по этапу, что и на экране), а не только
 // текущую страницу и не только строки, прошедшие поиск.
@@ -227,16 +220,16 @@ async function exportStandingsXLSX(type) {
   const starts = (kind, d) => [...(state.attendance[kind][d] || [])].filter(r => r <= at).length;
 
   // «± Чейз» — тот же, что на экране: приходит из базы вместе со срезом
-  const withChase = !type.startsWith('ind');
   const chaseGap = s => s.gap == null ? '' : s.gap > 0 ? `+${s.gap}` : String(s.gap);
 
   downloadTableXLSX(all, [
     ['#', s => s.rank],
+    ['Номер', s => s.car],
     ['Гонщик', s => s.driver],
     ['Команда', s => s.team],
     ['Авт.', s => s.mfr],
     ['Очки', s => s.total],
-    ...(withChase ? [['± Чейз', chaseGap]] : []),
+    ['± Чейз', chaseGap],
     ['Победы', s => s.wins],
     ['Гонок', s => starts('races', s.driver)],
     ['Квал.', s => starts('quals', s.driver)],
@@ -283,9 +276,9 @@ ${rounds.map(r => `<th title="${roundFullName(r)}">${roundLabel(r)}</th>`).join(
     const dmap = map[driver] || {};
     const qmap = qualMap ? (qualMap[driver] || {}) : null;
     const total = totals[driver] ?? 0;
-    html += `<tr class="${rank != null && rank <= 3 ? 'rank-' + rank : ''}">
-  <td class="driver-cell"><span class="pos-badge">${rank ?? '—'}</span> ${driver}${coalMark(teamOf(driver))}
-  <div class="team-drivers">${teamOf(driver)}</div></td>`;
+      html += `<tr class="${rank != null && rank <= 3 ? 'rank-' + rank : ''}">
+  <td class="driver-cell"><span class="pos-badge">${rank ?? '—'}</span> <span class="driver-link" onclick="openDriver('${jsArg(driver)}')">${driver}</span>${coalMark(teamOf(driver))}
+  <div class="team-drivers">${teamLink(teamOf(driver))}</div></td>`;
     for (const r of rounds) {
       const pos = dmap[r];
       const qpos = qmap ? qmap[r] : null;
@@ -398,8 +391,8 @@ ${rounds.map(r => `<th title="${roundFullName(r)}">${roundLabel(r)}</th>`).join(
 
   for (const g of list) {
     html += `<tr class="${g.rank <= 3 ? 'rank-' + g.rank : ''}">
-  <td class="driver-cell"><span class="pos-badge">${g.rank}</span> ${g.driver}${coalMark(g.team)}
-  <div class="team-drivers">${g.team}</div></td>`;
+  <td class="driver-cell"><span class="pos-badge">${g.rank}</span> <span class="driver-link" onclick="openDriver('${jsArg(g.driver)}')">${g.driver}</span>${coalMark(g.team)}
+  <div class="team-drivers">${teamLink(g.team)}</div></td>`;
     for (const r of rounds) {
       const c = g.cells[r];
       html += c == null

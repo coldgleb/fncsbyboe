@@ -32,9 +32,11 @@ IMMUTABLE LANGUAGE sql AS $$
 $$;
 
 /* Строка протокола в том виде, в каком её понимают правила:
-   - driver — имя с меткой «(i)» у гостя: в зачёте гость и тот же пилот без метки —
-     разные записи (так было в листах, так считают правила);
-   - is_guest — «(i)» или смена дивизиона (в дивизионе, откуда ушёл);
+   - driver — имя пилота; метка «(i)» только у того, кто в этом дивизионе выступал
+     одними гостевыми заявками (человек с заявкой от команды — одна запись, а его
+     гостевые этапы просто не приносят очков);
+   - is_guest — гостевая заявка или смена дивизиона (в дивизионе, откуда ушёл);
+   - guest_entry — тот самый «чистый гость»: заявок от команды в дивизионе не было;
    - round_key — номер этапа с дуэлями как 1.1 / 1.2;
    - src — к какому зачёту относится строка: дуэли идут и в гонки, и в квалы. */
 CREATE VIEW api.protocol AS
@@ -43,17 +45,29 @@ SELECT
   trim_scale(r.round + coalesce(r.duel, 0) / 10.0) AS round_key,
   r.pos,
   p.id AS participant_id,
-  p.name || CASE WHEN r.is_guest THEN ' (i)' ELSE '' END AS driver,
-  r.is_guest OR EXISTS (
-    SELECT 1 FROM division_changes dc
-     WHERE dc.season = r.season AND dc.participant_id = p.id
-       AND dc.from_division = r.division AND NOT r.is_guest
-  ) AS is_guest,
+  p.name || CASE WHEN g.guest_entry THEN ' (i)' ELSE '' END AS driver,
+  r.is_guest OR g.changed AS is_guest,
+  g.guest_entry,
   t.name AS team, c.number AS car, m.name AS mfr,
   r.ql, r.dr1, r.dr2, r.dr3, r.dr4, r.cau, r.ret, r.mn, r.due, r.points,
-  api.score_pts(r.pos, r.round, r.duel) AS pts
+  api.score_pts(r.pos, r.round, r.duel) AS pts,
+  -- гостевой этап пилота, выступающего за команду, ему самому и его команде очков не даёт
+  -- (машине владельца — даёт, п. 9.6, поэтому pts выше остаются полными)
+  CASE WHEN (r.is_guest OR g.changed) AND NOT g.guest_entry THEN 0
+       ELSE api.score_pts(r.pos, r.round, r.duel) END AS pts_own
 FROM results r
 JOIN participants p ON p.id = r.participant_id
+-- «сменил дивизион» и «только гостевые заявки» — свойства человека в дивизионе, а не строки
+CROSS JOIN LATERAL (
+  SELECT dc.changed,
+         NOT EXISTS (SELECT 1 FROM results r2
+                      WHERE r2.season = r.season AND r2.division = r.division
+                        AND r2.participant_id = r.participant_id AND NOT r2.is_guest)
+         OR dc.changed AS guest_entry
+    FROM (SELECT EXISTS (SELECT 1 FROM division_changes dc
+                          WHERE dc.season = r.season AND dc.participant_id = r.participant_id
+                            AND dc.from_division = r.division) AS changed) dc
+) g
 LEFT JOIN teams t ON t.id = r.team_id
 LEFT JOIN cars c ON c.id = r.car_id
 LEFT JOIN manufacturers m ON m.id = r.manufacturer_id;
@@ -83,12 +97,14 @@ RETURNS TABLE (driver text, team text) STABLE LANGUAGE sql AS $$
       FROM api.protocol pr
      WHERE pr.season = p_season AND pr.division = p_division AND pr.session = 'race'
        AND pr.team IS NOT NULL AND pr.team <> '—'
+       AND (NOT pr.is_guest OR pr.guest_entry)
      ORDER BY pr.driver, pr.round_key DESC, pr.pos IS NULL DESC, pr.pos DESC, pr.id DESC
   ), qual AS (
     SELECT DISTINCT ON (pr.driver) pr.driver, pr.team
       FROM api.protocol pr
      WHERE pr.season = p_season AND pr.division = p_division AND pr.session IN ('qual', 'duel')
        AND pr.team IS NOT NULL AND pr.team <> '—'
+       AND (NOT pr.is_guest OR pr.guest_entry)
      ORDER BY pr.driver, pr.round_key DESC, pr.pos IS NULL DESC, pr.pos DESC, pr.id DESC
   )
   SELECT coalesce(race.driver, qual.driver), coalesce(race.team, qual.team)
@@ -113,14 +129,17 @@ RETURNS TABLE (
     SELECT * FROM rows WHERE pos IS NOT NULL AND duel IS NULL AND round <> 0
   ), agg AS (
     SELECT rows.driver,
-           bool_or(rows.is_guest) AS is_guest,
-           sum(rows.pts)::int AS total,
+           bool_or(rows.guest_entry) AS is_guest,
+           sum(rows.pts_own)::int AS total,
            coalesce(sum(rows.points) FILTER (WHERE rows.round <> 0), 0) AS sheet_pts,
-           min(rows.ord) AS ord
+           -- порядок первого появления — по первой зачётной заявке, гостевая его не сдвигает
+           coalesce(min(rows.ord) FILTER (WHERE NOT rows.is_guest OR rows.guest_entry), min(rows.ord)) AS ord
       FROM rows GROUP BY rows.driver
   ), first_row AS (
+    -- номер и марка — из последней заявки от команды (у чистого гостя — из последней его)
     SELECT DISTINCT ON (rows.driver) rows.driver, rows.car, rows.mfr
-      FROM rows ORDER BY rows.driver, rows.ord
+      FROM rows WHERE NOT rows.is_guest OR rows.guest_entry
+     ORDER BY rows.driver, rows.round_key DESC, rows.id DESC
   ), st AS (
     SELECT stat.driver,
            min(stat.pos) AS best, sum(stat.pos)::int AS pos_sum, count(*)::int AS finishes,
@@ -217,7 +236,7 @@ RETURNS TABLE (
   ), post AS (
     -- очки и тай-брейки строго после 26 этапа: строки среза минус строки до 27 этапа
     SELECT pr.driver,
-           sum(pr.pts)::int AS total,
+           sum(pr.pts_own)::int AS total,
            count(*) FILTER (WHERE pr.pos = 1 AND pr.duel IS NULL AND pr.round <> 0)::int AS wins,
            min(pr.round) FILTER (WHERE pr.pos = 1 AND pr.duel IS NULL AND pr.round <> 0) AS first_win,
            ARRAY(SELECT (SELECT count(*)::int FROM unnest(
@@ -477,17 +496,17 @@ RETURNS json STABLE LANGUAGE sql AS $$
        AND duel IS NULL AND round <> 0
   ), ranked AS (
     -- очередность внутри этапа: больше очков выше, при равенстве — кто раньше в протоколе
-    SELECT f.*, row_number() OVER (PARTITION BY f.team, f.round ORDER BY f.pts DESC, f.o) AS k
+    SELECT f.*, row_number() OVER (PARTITION BY f.team, f.round ORDER BY f.pts_own DESC, f.o) AS k
       FROM f
   ), best AS (
     SELECT * FROM ranked WHERE k <= 2
   ), per_round AS (
-    SELECT team, round, sum(pts)::int AS pts,
-           json_agg(json_build_object('driver', driver, 'pos', pos, 'pts', pts) ORDER BY k) AS best
+    SELECT team, round, sum(pts_own)::int AS pts,
+           json_agg(json_build_object('driver', driver, 'pos', pos, 'pts', pts_own) ORDER BY k) AS best
       FROM best GROUP BY team, round
   ), scorers AS (
     SELECT team, json_object_agg(driver, json_build_object('rounds', n, 'pts', p)) AS scorers
-      FROM (SELECT team, driver, count(*)::int AS n, sum(pts)::int AS p FROM best GROUP BY team, driver) x
+      FROM (SELECT team, driver, count(*)::int AS n, sum(pts_own)::int AS p FROM best GROUP BY team, driver) x
      GROUP BY team
   ), drivers AS (
     SELECT team, array_agg(driver ORDER BY mo) AS drivers,
@@ -589,7 +608,7 @@ RETURNS json STABLE LANGUAGE sql AS $$
   SELECT coalesce(json_agg(json_build_object(
     'driver', s.driver, 'team', s.team,
     'roundPts', (SELECT json_object_agg(k, v ORDER BY k) FROM (
-        SELECT trim_scale(r.round_key) AS k, sum(r.pts)::int AS v FROM rows r WHERE r.driver = s.driver GROUP BY r.round_key) z)
+        SELECT trim_scale(r.round_key) AS k, sum(r.pts_own)::int AS v FROM rows r WHERE r.driver = s.driver GROUP BY r.round_key) z)
   ) ORDER BY s.n), '[]') FROM s
 $$;
 

@@ -34,18 +34,16 @@ const state = {
   division: new URLSearchParams(location.hash.slice(1)).get('div') === 'star' ? 'star' : 'open',
   races: { standings: [], rounds: [], rows: [] },
   quals: { standings: [], rounds: [], rows: [] },
-  indRaces: { standings: [] },
-  indQuals: { standings: [] },
-  filter: { races: '', quals: '', indRaces: '', indQuals: '' },
+  filter: { races: '', quals: '' },
   pivot: { races: '', quals: '' },
   golubFilter: { races: '', quals: '' },
-  page: { races: 1, quals: 1, indRaces: 1, indQuals: 1 },
+  page: { races: 1, quals: 1 },
   // Срез зачёта: этап, после которого показываем таблицу (null — последний, т.е. весь сезон)
-  upTo: { races: null, quals: null, indRaces: null, indQuals: null, owners: null },
+  upTo: { races: null, quals: null, owners: null },
   // Переключатель «Регулярный сезон / Чейз»: 'auto' — с 27 этапа сам Чейз, до этого
   // обычный сезон; 'regular'/'chase' — явный выбор пользователя, виден с 26 этапа
   chaseView: { races: 'auto', quals: 'auto', owners: 'auto' },
-  sort: { races: null, quals: null, indRaces: null, indQuals: null },
+  sort: { races: null, quals: null },
   // когда данные реально приехали с листов (у кэшированных — время их загрузки)
   dataTs: null,
   charts: {}
@@ -207,6 +205,13 @@ function penMark(t) {
    и линии графика один и тот же, поэтому приводим написание к классу из CSS. */
 const MFR_MATCH = [[/^(toy|tyt)/i, 'Toyota'], [/^(chev|chv)/i, 'Chevy'], [/^(ford|frd)/i, 'Ford']];
 const mfrKey = mfr => MFR_MATCH.find(([re]) => re.test(mfr || ''))?.[1] || mfr;
+
+// Номер машины пилота — в цвете его производителя (тот же набор классов, что у марки)
+function carBadge(car, mfr) {
+  if (!car || car === '—' || car === '-') return '<span class="muted">—</span>';
+  const key = mfrKey(mfr);
+  return `<span class="car-badge${key ? ' ' + key : ''}">${car}</span>`;
+}
 
 function mfrBadge(mfr) {
   if (!mfr || mfr === '-') return '';
@@ -403,8 +408,8 @@ function applyDivision() {
   document.querySelectorAll('.div-btn').forEach(b =>
     b.classList.toggle('rtog-active', b.dataset.div === state.division));
 
-  const hidden = [...(div.golub ? [] : ['golub']), ...(div.coalitions ? [] : ['ind']), ...(div.entries ? [] : ['entries'])];
-  for (const tab of ['golub', 'ind', 'entries']) {
+  const hidden = [...(div.golub ? [] : ['golub']), ...(div.entries ? [] : ['entries'])];
+  for (const tab of ['golub', 'entries']) {
     const on = !hidden.includes(tab);
     document.querySelector(`.tab-btn[data-tab="${tab}"]`).style.display = on ? '' : 'none';
     if (!on && document.querySelector('.tab-btn.active')?.dataset.tab === tab) switchTab('races');
