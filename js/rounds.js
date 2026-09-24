@@ -168,7 +168,22 @@ async function renderRoundMetric(roundNum) {
 
 // kind: 'st-drivers' | 'st-teams' | 'st-owners' — зачёт по состоянию после этапа (api.round_standings)
 async function renderRoundStandings(kind, roundNum) {
-  const apiKind = { 'st-drivers': 'drivers', 'st-teams': 'teams', 'st-owners': 'owners' }[kind];
+  /* Личный зачёт после этапа — тот же срез и та же таблица, что в «Итоговой таблице»:
+     место, изменение, номер, гонщик, команда, авт., очки, «± Чейз», лучший результат. */
+  if (kind === 'st-drivers') {
+    const cut = await fetchSlice('races', roundNum);
+    const full = cut.standings;
+    roundExport = { rows: full, filename: roundExportName(roundNum), cols: [
+      ['#', s => s.rank], ['Номер', s => s.car], ['Гонщик', s => s.driver], ['Команда', s => s.team],
+      ['Авт.', s => s.mfr], ['Очки', s => s.total], ['Победы', s => s.wins],
+      ['Лучший', s => (s.best == null ? '' : 'P' + s.best)], ['Раз', s => s.bestCount || ''],
+    ] };
+    document.getElementById('round-table').innerHTML =
+      standingsTableHtml(full.filter(s => roundHit(s.driver, s.team)), { prevRank: cut.prevRank, at: roundNum });
+    return;
+  }
+
+  const apiKind = { 'st-teams': 'teams', 'st-owners': 'owners' }[kind];
   const { rows: full, prevRank: prevPos } = await rpc('round_standings', roundArgs(roundNum, { kind: apiKind }), state.fresh);
 
   let head, body;

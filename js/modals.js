@@ -41,7 +41,8 @@ async function openDriver(driver, mode) {
   const metricMark = r => r.metric
     ? '<span class="metric-mark" title="Квалификация по метрике: без прогноза, меньше — лучше">(metric)</span> ' : '';
   const place = (pos, dq) => pos ?? (dq ? DQ_MARK : '—');
-  const roundLink = r => `<span class="driver-link" title="Открыть результаты этапа" onclick="goToRound(${Math.trunc(r.round)})">${roundFullName(r.round)}</span>`;
+  const roundLink = r => `<span class="driver-link" title="Открыть результаты этапа" onclick="goToRound(${Math.trunc(r.round)})">${roundFullName(r.round)}</span>`
+    + (r.guest ? ' <span class="guest-mark" title="Гостевая заявка: очки в личный зачёт не идут">(i)</span>' : '');
 
   const body = rounds.map(r => qualsOnly ? `<tr>
   <td>${roundLink(r)}</td>
@@ -114,9 +115,15 @@ async function openTeam(team) {
   const wins = t.bestPositions.filter(p => p === 1).length;
 
   const stat = (k, v) => `<div class="modal-stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  // метрика команды на последнем этапе: значение и место в метрике
+  const m = card.metric;
+  const metricStat = m && m.score != null
+    ? `<div class="modal-stat"><div class="k">METRIC SCORE</div><div class="v" title="После ${roundFullName(m.round)}${m.ranked ? '' : ' · вне ранжирования'}">${m.score.toFixed(3)}${m.rank ? ` <span class="muted">#${m.rank}</span>` : ''}</div></div>`
+    : '';
   const stats = [
     stat('Место', t.rank == null ? 'вне зачёта' : `#${t.rank}`),
     stat('Очки', `${penMark(t)}${t.total}`),
+    metricStat,
     stat('Пилотов', t.drivers.length),
     stat('Этапов в зачёте', scored.length),
     stat('Лучший финиш', best != null ? 'P' + best : '—'),

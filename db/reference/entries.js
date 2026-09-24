@@ -146,14 +146,10 @@ function metricScore(t) {
   return base * (1 + (1 - t.pct / 100));
 }
 
-/* Срезы, на которые считается таблица: не каждый этап подряд, а контрольные точки сезона.
-   Сама статистика при этом считается по всем этапам до выбранного, а не только по этим трём. */
-const ENTRIES_CHECKPOINTS = [20, 26, 27];
-
+/* Срезы, на которые считается таблица: каждый проведённый этап квалификаций.
+   Статистика считается по всем этапам до выбранного. */
 function entriesRounds() {
-  const held = roundsOf('quals');
-  const checkpoints = held.filter(r => ENTRIES_CHECKPOINTS.includes(r));
-  return checkpoints.length ? checkpoints : held.slice(-1);   // ни одной точки ещё не прошло
+  return roundsOf('quals');
 }
 
 function entriesRows(at) {
@@ -202,7 +198,8 @@ function entriesRows(at) {
   // по умолчанию — по метрике, меньше лучше; команды без метрики уходят вниз
   return rows
     .sort((a, b) => (a.metric ?? Infinity) - (b.metric ?? Infinity) || b.teamPts - a.teamPts)
-    .map((t, i) => ({ ...t, rank: i + 1 }));
+    // ranked — прошла ли команда ценз ENTRIES %: это показывает и таблица, и карточка команды
+    .map((t, i) => ({ ...t, rank: i + 1, ranked: isRanked(t) }));
 }
 
 /* Столбцы: [заголовок, значение строки, подсказка]. Один список на экран и на выгрузку,

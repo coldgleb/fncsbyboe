@@ -163,6 +163,20 @@ h3 {
   margin-top: 10px;
 }
 
+/* Строка сезона в шапке: дивизион, этапы, участники, время обновления */
+.season-meta {
+  color: var(--text2);
+  font: 500 15px var(--display);
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+
+/* Гостевая заявка в карточке пилота: этап есть, очков в зачёт нет */
+.guest-mark {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 /* KPI: строка крупных чисел (рендерится в js/app.js) */
 .kpi-grid {
   display: flex;

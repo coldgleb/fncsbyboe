@@ -133,7 +133,12 @@ function computeStandings(rows) {
   }
 
   return renumber(Object.values(map).sort(standingsCmp)
-    .map(s => ({ ...s, bestPositions: [...s.positions].sort((a, b) => a - b) })));
+    .map(s => ({
+      ...s,
+      bestPositions: [...s.positions].sort((a, b) => a - b),
+      // сколько раз пилот показал свой лучший результат (для колонки «P1 (x1)»)
+      bestCount: s.positions.filter(p => p === s.best).length,
+    })));
 }
 
 function uniqueRounds(rows) {

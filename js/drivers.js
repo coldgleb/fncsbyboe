@@ -52,6 +52,60 @@ function setUpTo(type, val) {
   renderTable(type);
 }
 
+/* Таблица личного зачёта — одна и та же в «Итоговой таблице» и в «Личном зачёте после
+   этапа»: место, изменение, номер машины, гонщик, команда, производитель, очки, «± Чейз»,
+   лучший результат с числом повторов и участия. Заголовки по клику сортируются только
+   там, где сортировка есть (итоговая таблица передаёт свой sortTh). */
+function standingsTableHtml(rows, { prevRank = {}, at = Infinity, quals = false, sortTh = null, placeOf = null } = {}) {
+  const th = sortTh || ((key, label, attrs = '', cls = 'r') => `<th class="${cls}" ${attrs}>${label}</th>`);
+  // участия считаем до выбранного этапа, иначе срез врёт про пропуски
+  const starts = (kind, d) => [...(state.attendance[kind][d] || [])].filter(r => r <= at).length;
+  const gapCell = s => {
+    if (s.gap == null) return '<span class="muted">—</span>';
+    if (s.gap === 0) return '<span class="muted">0</span>';
+    return `<span class="${s.gap > 0 ? 'up' : 'down'}">${s.gap > 0 ? '+' : ''}${s.gap}</span>`;
+  };
+  // лучший результат и сколько раз он был: «P1 (x1)», «P30 (x15)»
+  const bestCell = s => s.best == null ? '<span class="muted">—</span>'
+    : `<strong${s.best === 1 ? ' class="win"' : ''}>P${s.best}</strong> <span class="muted">(x${s.bestCount ?? 1})</span>`;
+
+  let html = `<div class="table-scroll"><table class="standings-table"><thead><tr>
+${th('rank', '#', '', 'r w-40')}
+<th class="r w-44" title="Изменение места к прошлому этапу">±</th>
+${th('car', '#', 'title="Номер машины по последней проведённой гонке"', 'r w-44')}
+${th('driver', 'Гонщик', '', '')}
+${th('team', 'Команда', '', '')}
+${th('mfr', 'Авт.', '', '')}
+${th('total', 'Очки')}
+${th('chase', '± Чейз', 'title="В Чейзе — отрыв от лидера Чейза, ниже границы — отставание от 17-го места; в регулярном сезоне — до отсечки топ-16"')}
+${th('best', 'Лучший', 'title="Лучший результат и сколько раз он показан"')}
+${th('starts', 'Гонок / Квал.', 'title="Проходов в гонку / участий в квалификации"')}
+  </tr></thead><tbody>`;
+
+  rows.forEach((s, i) => {
+    // у гостя (в т.ч. временного — сменил дивизион) места в зачёте нет вообще
+    const place = placeOf ? placeOf(s, i) : s.rank;
+    const rc = [
+      place != null && place <= 3 ? `rank-${place}` : '',
+      s.playoff ? 'row-playoff' : '',
+      s.cutoff ? 'row-cutoff' : '',
+    ].filter(Boolean).join(' ');
+    html += `<tr class="${rc}" title="${driverTooltip(s)}">
+  <td class="r"><span class="pos-badge"${placeOf && place != null ? ` title="Место в зачёте: ${s.rank}"` : ''}>${place ?? '—'}</span></td>
+  <td class="r">${s.isGuest ? '<span class="muted">—</span>' : deltaCell(prevRank[s.driver], s.rank)}</td>
+  <td class="r">${carBadge(s.car, s.mfr)}</td>
+  <td><strong>${driverLink(s.driver, quals ? 'quals' : null)}</strong></td>
+  <td class="team-text">${teamLink(s.team)}${coalMark(s.team)}</td>
+  <td>${mfrBadge(s.mfr)}</td>
+  <td class="r"><strong>${s.total}</strong></td>
+  <td class="r">${gapCell(s)}</td>
+  <td class="r">${bestCell(s)}</td>
+  <td class="r muted">${starts('races', s.driver)} / ${starts('quals', s.driver)}</td>
+</tr>`;
+  });
+  return html + '</tbody></table></div>';
+}
+
 async function renderTable(type) {
   const wrap = document.getElementById(`table-${type}`);
   const rounds = roundsOf(type);
@@ -67,20 +121,13 @@ async function renderTable(type) {
   }
   const all = cut.standings;
   const prevRank = cut.prevRank;
-  // участие считаем до выбранного этапа, иначе срез врёт про пропуски
-  const starts = (kind, d) => [...(state.attendance[kind][d] || [])].filter(r => r <= at).length;
   const q = state.filter[type].toLowerCase();
   const filtered = q
     ? all.filter(s => s.driver.toLowerCase().includes(q) || s.team.toLowerCase().includes(q))
     : all;
 
-  // Граница Чейза (топ-16), линия отсечки и «± Чейз» приходят из базы
+  // Граница Чейза (топ-16), линия отсечки и «± Чейз» считаются вместе со срезом
   const isChase = isChaseMode(type, at);
-  const gapCell = s => {
-    if (s.gap == null) return '<span class="muted">—</span>';
-    if (s.gap === 0) return '<span class="muted">0</span>';
-    return `<span class="${s.gap > 0 ? 'up' : 'down'}">${s.gap > 0 ? '+' : ''}${s.gap}</span>`;
-  };
 
   const sort = state.sort[type];
   const rows = sort
@@ -124,53 +171,11 @@ async function renderTable(type) {
   // а не внутрь тела таблицы (пока используется только для «Квалификации»)
   const uptoContainer = document.getElementById(`upto-${type}`);
 
-  let html = uptoContainer ? '' : uptoHtml;
-  html += `<div class="table-scroll"><table class="standings-table"><thead><tr>
-${sortTh('rank', '#', '', 'r w-40')}
-<th class="r w-44" title="Изменение места к прошлому этапу">±</th>
-${sortTh('car', '#', 'title="Номер машины по последней проведённой гонке"', 'r w-44')}
-${sortTh('driver', 'Гонщик', '', '')}
-${sortTh('team', 'Команда', '', '')}
-${sortTh('mfr', 'Авт.', '', '')}
-${sortTh('total', 'Очки')}
-${sortTh('chase', '± Чейз', 'title="В Чейзе — преимущество над первым вне Чейза; вне Чейза — отставание от последнего из Чейза"')}
-${sortTh('wins', 'Победы', 'title="Количество побед (тай-брейк 1)"')}
-${sortTh('starts', 'Гонок / Квал.', 'title="Проходов в гонку / участий в квалификации"')}
-${sortTh('best', 'Лучш.')}
-  </tr></thead><tbody>`;
-
-  slice.forEach((s, i) => {
-    // при своей сортировке места фиксированы: 1..n сверху вниз, место в зачёте — в тултипе;
-    // у гостя (в т.ч. временного — сменил дивизион по листу Changes) места нет вообще
-    const place = sort ? sortPlaceOf[(page - 1) * PAGE_SIZE + i] : s.rank;
-    const inPlayoff = !!s.playoff;
-    const isCutoff = !!s.cutoff;
-    const rc = [
-      place != null && place <= 3 ? `rank-${place}` : '',
-      inPlayoff ? 'row-playoff' : '',
-      isCutoff ? 'row-cutoff' : '',
-    ].filter(Boolean).join(' ');
-
-    const winsCell = s.wins > 0
-      ? `<strong class="win">${s.wins}</strong>`
-      : `<span class="muted">—</span>`;
-    const tb = driverTooltip(s);
-    html += `<tr class="${rc}" title="${tb}">
-  <td class="r"><span class="pos-badge"${sort && place != null ? ` title="Место в зачёте: ${s.rank}"` : ''}>${place ?? '—'}</span></td>
-  <td class="r">${s.isGuest ? '<span class="muted">—</span>' : deltaCell(prevRank[s.driver], s.rank)}</td>
-  <td class="r">${carBadge(s.car, s.mfr)}</td>
-  <td><strong class="driver-link" onclick="openDriver('${s.driver.replace(/'/g, "\\'").replace(/"/g, '&quot;')}'${/quals/i.test(type) ? ",'quals'" : ''})">${s.driver}</strong></td>
-  <td class="team-text">${teamLink(s.team)}${coalMark(s.team)}</td>
-  <td>${mfrBadge(s.mfr)}</td>
-  <td class="r"><strong>${s.total}</strong></td>
-  <td class="r">${gapCell(s)}</td>
-  <td class="r">${winsCell}</td>
-  <td class="r muted">${starts('races', s.driver)} / ${starts('quals', s.driver)}</td>
-  <td class="r muted">${s.best == null ? '—' : 'P' + s.best}</td>
-</tr>`;
-  });
-
-  html += '</tbody></table></div>'
+  const html = (uptoContainer ? '' : uptoHtml)
+    + standingsTableHtml(slice, {
+      prevRank, at, quals: /quals/i.test(type), sortTh,
+      placeOf: sort ? (_, i) => sortPlaceOf[(page - 1) * PAGE_SIZE + i] : null,
+    })
     + paginationHtml(page, pages, `${rows.length} участников`, p => `goPage('${type}',${p})`);
 
   wrap.innerHTML = html;
@@ -187,7 +192,7 @@ const SORT_KEYS = {
   chase: s => s.total,   // отрыв от границы Чейза — та же очерёдность, что и по очкам
   wins: s => s.wins,
   starts: s => state.attendance.races[s.driver]?.size || 0,
-  best: s => s.best ?? Infinity,
+  best: s => (s.best ?? Infinity) - (s.bestCount || 0) / 1000,
 };
 
 // Клик: по возрастанию, повторный — по убыванию, третий — назад к местам в чемпионате
@@ -277,8 +282,7 @@ ${rounds.map(r => `<th title="${roundFullName(r)}">${roundLabel(r)}</th>`).join(
     const qmap = qualMap ? (qualMap[driver] || {}) : null;
     const total = totals[driver] ?? 0;
       html += `<tr class="${rank != null && rank <= 3 ? 'rank-' + rank : ''}">
-  <td class="driver-cell"><span class="pos-badge">${rank ?? '—'}</span> <span class="driver-link" onclick="openDriver('${jsArg(driver)}')">${driver}</span>${coalMark(teamOf(driver))}
-  <div class="team-drivers">${teamLink(teamOf(driver))}</div></td>`;
+  <td class="driver-cell"><span class="pos-badge">${rank ?? '—'}</span> ${driverLink(driver)}${coalMark(teamOf(driver))}</td>`;
     for (const r of rounds) {
       const pos = dmap[r];
       const qpos = qmap ? qmap[r] : null;

@@ -82,10 +82,15 @@ ${ENTRIES_COLS.map(([label, , title]) => `<th class="${colClass(label)}" title="
     + `<div class="pagination"><span class="page-info">${rows.length} команд</span></div>`;
 }
 
-function setEntriesUpTo(val) {
+async function setEntriesUpTo(val) {
   const rounds = (state.metric || { rounds: [] }).rounds;
   const n = parseFloat(val);
   state.entriesUpTo = n === rounds[rounds.length - 1] ? null : n;
+  // метрика считается на каждый этап отдельно: строки нужного среза догружаем по требованию
+  if (state.metric && !state.metric.byRound[n]) {
+    const data = await rpc('metric', { season: state.year, division: state.division, upto: n }, state.fresh);
+    Object.assign(state.metric.byRound, data.byRound);
+  }
   renderEntries();
 }
 

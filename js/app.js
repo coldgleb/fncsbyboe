@@ -1,38 +1,14 @@
 /* KPI, загрузка данных и запуск */
 
+/* Шапка: одна строка с дивизионом, этапами, участниками и временем обновления —
+   она же стоит на месте прежних четырёх плиток. */
 function renderKPI() {
-  const { leader, second, numRaces, numQuals, gap } = state.kpi;
-  const allDrivers = { size: state.kpi.drivers };
-  const teams = { size: state.kpi.teams };
-
-  document.getElementById('kpi-grid').innerHTML = `
-<div class="kpi-card">
-  <div class="kpi-label">Лидер чемпионата</div>
-  <div class="kpi-value sm">${leader.driver}</div>
-  <div class="kpi-sub">${leader.team} &middot; ${leader.total} очков</div>
-</div>
-<div class="kpi-card">
-  <div class="kpi-label">Раундов завершено</div>
-  <div class="kpi-value">${numRaces} / ${numQuals}</div>
-  <div class="kpi-sub">гонок / квалификаций</div>
-</div>
-<div class="kpi-card">
-  <div class="kpi-label">Участников</div>
-  <div class="kpi-value">${allDrivers.size}</div>
-  <div class="kpi-sub">${teams.size} команд</div>
-</div>
-<div class="kpi-card">
-  <div class="kpi-label">Отрыв лидера от 2-го</div>
-  <div class="kpi-value">+${gap}</div>
-  <div class="kpi-sub">${second ? second.driver.split(' ').pop() + ' · ' + second.total + ' очков' : ''}</div>
-</div>
-  `;
-
+  const { numRaces, numQuals, drivers, teams } = state.kpi;
   // у кэшированных листов показываем время их загрузки, а не «сейчас»
   const upd = new Date(state.dataTs ?? Date.now()).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-  document.getElementById('header-meta').textContent =
-    `Дивизион ${DIVISIONS[state.division].label} · ${numRaces} гонок · ${numQuals} квалификаций · `
-    + `${allDrivers.size} участников · ${teams.size} команд · обновлено ${upd}`;
+  const meta = `Дивизион ${DIVISIONS[state.division].label} · ${numRaces} гонок · ${numQuals} квалификаций · `
+    + `${drivers} участников · ${teams} команд · обновлено ${upd}`;
+  document.getElementById('kpi-grid').innerHTML = `<div class="season-meta">${meta}</div>`;
 }
 
 async function init(fresh) {
@@ -51,7 +27,6 @@ async function init(fresh) {
       <button class="page-btn" onclick="init(true)">Повторить</button>
     </div>
   </div>`;
-    document.getElementById('header-meta').textContent = 'Данные не загружены';
     console.error(err);
   }
 }
@@ -139,7 +114,8 @@ async function ensureTab(tab, fresh = state.fresh) {
     if (tab === 'owners') { await renderOwners(); return; }
 
     if (tab === 'entries') {
-      state.metric = await rpc('metric', p, fresh);
+      // метрика считается на каждый этап, поэтому строки берём только на нужный срез
+      state.metric = await rpc('metric', { ...p, upto: state.entriesUpTo ?? undefined }, fresh);
       renderEntries();
       return;
     }

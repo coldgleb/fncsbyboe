@@ -279,23 +279,27 @@ function sliceOf(s, session, upto, chase = 'auto') {
   if (session === 'owners') return { at, rounds, standings: standingsUpTo(at), prevRank };
 
   const all = slim(standingsUpTo(at));
-  /* Граница Чейза (топ-16 не-гостей, прошедших ценз квал), линия отсечки и «± Чейз»:
-     в Чейзе — от лидера Чейза / от первого после границы, в регулярном — от первого
-     вне Чейза / от последнего в Чейзе. */
+  /* Граница Чейза — топ-16 не-гостей, прошедших ценз квалификаций. «± Чейз»:
+     - в Чейзе (очки уже сброшены на сетку): в топ-16 — отрыв от лидера Чейза,
+       ниже границы — отставание от того, кто идёт 17-м; считается всем подряд,
+       включая гостей и не прошедших ценз (им тоже видно, сколько до Чейза);
+     - в регулярном сезоне как раньше: в топ-16 — запас над первым вне Чейза,
+       ниже — отставание от последнего в Чейзе, и только для тех, кто в зачёте. */
   const playoffSet = L.buildPlayoffSet(all, at);
   const real = chase === 'chase' || (chase !== 'regular' && at > L.CHASE_START);
   const inChase = all.filter(x => playoffSet.has(x.driver));
   let lastChaseIdx = -1;
   all.forEach((x, i) => { if (playoffSet.has(x.driver)) lastChaseIdx = i; });
-  let afterChase = null;
-  for (let j = lastChaseIdx + 1; j < all.length; j++) if (!all[j].isGuest) { afterChase = all[j]; break; }
+  // 17-й в списке: первая строка после границы, кто бы это ни был
+  const afterChase = all[lastChaseIdx + 1] || null;
   const firstOut = all.find(x => !x.isGuest && !playoffSet.has(x.driver) && L.qualEligible(x.driver, at));
   const lastIn = inChase[inChase.length - 1], leader = inChase[0];
 
   const standings = all.map(x => {
     const playoff = playoffSet.has(x.driver);
     const ref = real ? (playoff ? leader : afterChase) : (playoff ? firstOut : lastIn);
-    const gap = x.isGuest || !L.qualEligible(x.driver, at) || !ref ? null : x.total - ref.total;
+    const skip = !real && (x.isGuest || !L.qualEligible(x.driver, at));
+    const gap = skip || !ref ? null : x.total - ref.total;
     return { ...x, playoff, cutoff: afterChase != null && afterChase.driver === x.driver, gap };
   });
   return { at, rounds, standings, prevRank };
@@ -479,6 +483,8 @@ function driverCard(s, driver, mode) {
     const qualPos = qr ? qr['Pos.'] ?? null : null;
     return {
       round: r,
+      // гостевая заявка: результат есть, а очков в личный зачёт этап не даёт
+      guest: !!(qualsOnly ? qr?.guest : (rr?.guest ?? qr?.guest)),
       qualPos, qualDQ: !!qr && qualPos == null, qualPts: qr ? qr['Points'] ?? null : null,
       racePos, raceDQ: !!rr && racePos == null, racePts: rr ? rr['Points'] ?? null : null,
       diff: racePos != null && qualPos != null ? qualPos - racePos : null,
@@ -511,7 +517,18 @@ function teamCard(s, team) {
       pts: got, rankInRound, total: cum, rank: st.teamRankHistory[team]?.[r] ?? null,
     };
   });
-  return { team: t, rounds: rows, history: st.teamRankHistory[team] || {} };
+  // актуальная метрика команды — на последнем проведённом этапе
+  let metric = null;
+  if (st.entries) {
+    const mr = L.entriesRounds();
+    const last = mr[mr.length - 1];
+    if (last != null) {
+      const list = L.entriesRows(last);
+      const row = list.find(x => x.team === team);
+      if (row) metric = { round: last, score: row.metric, rank: row.rank, ranked: row.ranked, pct: row.pct };
+    }
+  }
+  return { team: t, rounds: rows, history: st.teamRankHistory[team] || {}, metric };
 }
 
 /* ── Сводка сезона для первого экрана ── */
@@ -575,13 +592,14 @@ const LOCAL_API = {
     return p.with_guest_only ? s.st.teamPivot : s.st.teamStandings;
   },
 
-  metric: s => {
+  /* Метрика: этапов теперь столько, сколько проведено, поэтому считаем строки только
+     на запрошенный срез — остальные фронт дозапросит, когда их выберут. */
+  metric: (s, p) => {
     withTeams(s);
     if (!s.st.entries) return { rounds: [], byRound: {} };
     const rounds = s.L.entriesRounds();
-    const byRound = {};
-    for (const at of rounds) byRound[at] = s.L.entriesRows(at);
-    return { rounds, byRound };
+    const at = p.upto == null ? rounds[rounds.length - 1] : Number(p.upto);
+    return { rounds, byRound: rounds.includes(at) ? { [at]: s.L.entriesRows(at) } : {} };
   },
 
   golub: (s, p) => { withGolub(s); return (s.st.golub || {})[p.session === 'qual' ? 'quals' : 'races'] || null; },
