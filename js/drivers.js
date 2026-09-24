@@ -69,16 +69,16 @@ function standingsTableHtml(rows, { prevRank = {}, at = Infinity, quals = false,
     : `<strong${s.best === 1 ? ' class="win"' : ''}>P${s.best}</strong> <span class="muted">(x${s.bestCount ?? 1})</span>`;
 
   let html = `<div class="table-scroll"><table class="standings-table"><thead><tr>
-${th('rank', '#', '', 'r w-40')}
-<th class="r w-44" title="Изменение места к прошлому этапу">±</th>
-${th('car', '#', 'title="Номер машины по последней проведённой гонке"', 'r w-44')}
-${th('driver', 'Гонщик', '', '')}
+${th('rank', '#', '', 'r w-40 pin pin-l0 pw36')}
+<th class="r w-44 pin pin-l36 pw40" title="Изменение места к прошлому этапу">±</th>
+${th('car', '#', 'title="Номер машины по последней проведённой гонке"', 'r w-44 pin pin-l76 pw44')}
+${th('driver', 'Гонщик', '', 'pin pin-l120 pin-last')}
 ${th('team', 'Команда', '', '')}
 ${th('mfr', 'Авт.', '', '')}
 ${th('total', 'Очки')}
-${th('chase', '± Чейз', 'title="В Чейзе — отрыв от лидера Чейза, ниже границы — отставание от 17-го места; в регулярном сезоне — до отсечки топ-16 (всем, включая гостей и не прошедших ценз), а с 26 этапа — от лидера"')}
-${th('best', 'Лучший', 'title="Лучший результат и сколько раз он показан"')}
-${th('starts', 'Гонок / Квал.', 'title="Проходов в гонку / участий в квалификации"')}
+${th('chase', '± Чейз', 'title="В Чейзе — отрыв от лидера Чейза, ниже границы — отставание от 17-го места; в регулярном сезоне — до отсечки топ-16 (всем, включая гостей и не прошедших ценз), а с 26 этапа — от лидера"', 'r hide-sm')}
+${th('best', 'Лучший', 'title="Лучший результат и сколько раз он показан"', 'r hide-sm')}
+${th('starts', 'Гонок / Квал.', 'title="Проходов в гонку / участий в квалификации"', 'r hide-sm')}
   </tr></thead><tbody>`;
 
   rows.forEach((s, i) => {
@@ -90,18 +90,18 @@ ${th('starts', 'Гонок / Квал.', 'title="Проходов в гонку 
       s.cutoff ? 'row-cutoff' : '',
     ].filter(Boolean).join(' ');
     html += `<tr class="${rc}" title="${driverTooltip(s)}">
-  <td class="r"><span class="pos-badge"${placeOf && place != null ? ` title="Место в зачёте: ${s.rank}"` : ''}>${place ?? '—'}</span></td>
-  <td class="r">${s.isGuest ? '<span class="muted">—</span>' : deltaCell(prevRank[s.driver], s.rank)}</td>
-  <td class="r">${carBadge(s.car, s.mfr)}</td>
-  <td><strong>${driverLink(s.driver, quals ? 'quals' : null, s.driver.replace(' (i)', ''))}</strong></td>
+  <td class="r pin pin-l0 pw36"><span class="pos-badge"${placeOf && place != null ? ` title="Место в зачёте: ${s.rank}"` : ''}>${place ?? '—'}</span></td>
+  <td class="r pin pin-l36 pw40">${s.isGuest ? '<span class="muted">—</span>' : deltaCell(prevRank[s.driver], s.rank)}</td>
+  <td class="r pin pin-l76 pw44">${carBadge(s.car, s.mfr)}</td>
+  <td class="pin pin-l120 pin-last"><strong>${driverLink(s.driver, quals ? 'quals' : null, s.driver.replace(' (i)', ''))}</strong></td>
   <td class="team-text">${teamLink(s.team)}${coalMark(s.team)}</td>
   <td>${mfrBadge(s.mfr)}</td>
   <td class="r">${s.isGuest
     ? `<span class="muted" title="Гость: очки считаются как у боевого пилота, но вне основного зачёта">${s.total} <span class="guest-mark">(i)</span></span>`
     : `<strong>${s.total}</strong>`}</td>
-  <td class="r">${gapCell(s)}</td>
-  <td class="r">${bestCell(s)}</td>
-  <td class="r muted">${starts('races', s.driver)} / ${starts('quals', s.driver)}</td>
+  <td class="r hide-sm">${gapCell(s)}</td>
+  <td class="r hide-sm">${bestCell(s)}</td>
+  <td class="r muted hide-sm">${starts('races', s.driver)} / ${starts('quals', s.driver)}</td>
 </tr>`;
   });
   return html + '</tbody></table></div>';
@@ -154,15 +154,15 @@ async function renderTable(type) {
   const sortPlaceOf = sort ? rows.map(s => (s.isGuest ? null : ++sortSeq)) : null;
 
   const uptoHtml = `<div class="table-upto">
-  <label>Зачёт после этапа:
-    <select class="chart-select" onchange="setUpTo('${type}', this.value)">
+  <label><span class="upto-lbl">Зачёт после этапа:</span>
+    <select class="chart-select" title="Зачёт после этапа" onchange="setUpTo('${type}', this.value)">
       ${rounds.map(r => `<option value="${r}"${r === at ? ' selected' : ''}>${roundFullName(r)}</option>`).join('')}
     </select>
   </label>
   ${isLast ? '' : '<span class="upto-note">срез сезона: Чейз и тай-брейки — на этот этап</span>'}
   ${at > CHASE_START ? `
   <div class="round-toggle inline">
-    <button class="rtog-btn${!isChase ? ' rtog-active' : ''}" onclick="setChaseView('${type}','regular')">Регулярный сезон</button>
+    <button class="rtog-btn${!isChase ? ' rtog-active' : ''}" onclick="setChaseView('${type}','regular')"><span class="lbl-full">Регулярный сезон</span><span class="lbl-short">Сезон</span></button>
     <button class="rtog-btn${isChase ? ' rtog-active' : ''}" onclick="setChaseView('${type}','chase')">Чейз</button>
   </div>` : ''}
 </div>`;

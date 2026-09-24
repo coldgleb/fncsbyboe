@@ -42,7 +42,7 @@ async function openDriver(driver, mode) {
   const qualStats = statBlock('Квалификации', qs, 'quals', card.guest?.quals, 'Поулы', 'Лучший');
 
   const metricMark = r => r.metric
-    ? '<span class="metric-mark" title="Квалификация по метрике: без прогноза, меньше — лучше">(metric)</span> ' : '';
+    ? '<span class="metric-mark" title="Квалификация по метрике: без прогноза, меньше — лучше">(m)</span> ' : '';
   const place = (pos, dq) => pos ?? (dq ? DQ_MARK : '—');
   const roundLink = r => `<span class="driver-link" title="Открыть результаты этапа" onclick="goToRound(${Math.trunc(r.round)})">${roundFullName(r.round)}</span>`
     + (r.guest ? ` <span class="guest-mark" title="Гостевая заявка: ${r.counted
@@ -95,7 +95,7 @@ ${qualsOnly ? qualStats : `<div class="modal-stats-pair">${raceStats}${qualStats
   <tbody>${body || `<tr><td colspan="${qualsOnly ? 4 : 7}" class="muted">Нет данных</td></tr>`}</tbody>
 </table></div>
 ${rounds.some(r => r.metric)
-      ? '<div class="modal-note"><span class="metric-mark">(metric)</span> — квалификация по метрике: прогноза не было, меньше очков лучше</div>'
+      ? '<div class="modal-note"><span class="metric-mark">(m)</span> — квалификация по метрике: прогноза не было, меньше очков лучше</div>'
       : ''}`;
   document.getElementById('driver-modal').classList.add('open');
   const color = carLineColor(car) || MFR_COLORS[mfrKey(base.mfr)] || GRAY;
@@ -261,7 +261,8 @@ function closeDriver() {
 }
 
 // Из карточки пилота — к результатам этапа
-function goToRound(n) {
+// view — какой протокол открыть: 'race' (по умолчанию) или 'qual'
+function goToRound(n, view = 'race') {
   const val = String(n);
   closeDriver();
   switchTab('rounds');
@@ -271,7 +272,7 @@ function goToRound(n) {
     const sel = document.getElementById('round-select');
     if (!sel || ![...sel.options].some(o => o.value === val)) return;
     sel.value = val;
-    roundView = 'race';
+    roundView = view;
     onRoundChange();
   }).catch(err => console.error(err));
 }

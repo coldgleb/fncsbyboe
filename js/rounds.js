@@ -218,12 +218,12 @@ async function renderRoundStandings(kind, roundNum) {
       ['#', s => s.rank], ['Номер', s => s.car], ['Гонщик', s => s.driver], ['Команда', s => s.team],
       ['Авт.', s => s.mfr], ['Победы', s => s.wins], ['Очки', s => s.total],
     ] };
-    head = '<th class="r">Номер</th><th>Гонщик</th><th>Команда</th><th>Авт.</th>'
+    head = '<th class="r">Номер</th><th class="sticky-col">Гонщик</th><th>Команда</th><th>Авт.</th>'
       + '<th class="r">Победы</th><th class="r">Очки</th>';
     body = full.filter(s => roundHit(s.driver, s.team))
       .map(s => [s.rank, deltaCell(prevPos[s.driver], s.rank),
     `<td class="r">${carBadge(s.car, s.mfr)}</td>
-   <td><strong>${driverLink(s.driver)}</strong></td>
+   <td class="sticky-col"><strong>${driverLink(s.driver)}</strong></td>
    <td class="team-text">${teamLink(s.team)}${coalMark(s.team)}</td>
    <td>${mfrBadge(s.mfr)}</td>
    <td class="r">${s.wins > 0 ? `<strong class="win">${s.wins}</strong>` : '<span class="muted">—</span>'}</td>
@@ -277,7 +277,7 @@ async function onRoundChange() {
   const baseCols = [
     { key: '#', label: '#', cls: 'r', fmt: (v, r) => carBadge(v, r['M.']) },
     // гостевая заявка пилота, у которого есть и свои, — «(i)» в имени у него нет, ставим метку
-    { key: 'Driver', label: 'Пилот', fmt: (v, r) => `<strong>${driverLink(v)}</strong>`
+    { key: 'Driver', label: 'Пилот', cls: 'sticky-col', fmt: (v, r) => `<strong>${driverLink(v)}</strong>`
       + (r.guest && !v.includes('(i)') ? ' <span class="guest-mark" title="Гостевая заявка">(i)</span>' : '') },
     { key: 'Team', label: 'Команда', fmt: v => `<span class="team-text">${teamLink(v)}${coalMark(v)}</span>` },
     { key: 'M.', label: 'Авт.', fmt: v => mfrBadge(v) },

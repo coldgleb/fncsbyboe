@@ -595,7 +595,7 @@ function renderSources(root){
   const raceKey=state.year+'|'+state.series;
   const raceGrp=el('div',{class:'pgrp'});
   raceGrp.appendChild(el('label',{},'Гонка'));
-  const rSel=el('select',{class:'pin chart-select',style:'width:320px',
+  const rSel=el('select',{class:'pin chart-select',style:'width:320px;max-width:100%',
     onchange:e=>{const v=e.target.value;if(!v)return;state.raceId=v;saveState(state);render();}});
   const fillRaceSel=()=>{
     while(rSel.firstChild)rSel.removeChild(rSel.firstChild);

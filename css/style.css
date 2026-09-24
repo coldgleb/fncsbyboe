@@ -429,6 +429,11 @@ main {
   margin-bottom: 14px;
 }
 
+/* карточка топ-5 может быть уже своей таблицы — таблица тогда прокручивается внутри */
+.top5-card {
+  min-width: 0;
+}
+
 @media (max-width: 900px) {
   .charts-grid {
     grid-template-columns: 1fr;
@@ -614,6 +619,12 @@ main {
 .rank-3 .pos-badge {
   background: var(--bronze);
   color: #fff;
+}
+
+/* сокращения видны только на телефоне (см. @media) */
+.mfr-short,
+.lbl-short {
+  display: none;
 }
 
 .mfr-badge {
@@ -1521,6 +1532,8 @@ table[data-sort="auto"] th:hover {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  max-width: 100%;
+  min-width: 0;
 }
 
 #calc-root .pgrp label,
@@ -1542,8 +1555,11 @@ table[data-sort="auto"] th:hover {
   align-items: stretch;
 }
 
+/* список гонок сжимается под ширину экрана, кнопка ⟳ остаётся рядом */
 #calc-root .rrow .pin {
   max-width: 100%;
+  min-width: 0;
+  flex: 0 1 auto;
 }
 
 #calc-root input,
@@ -2113,17 +2129,129 @@ table[data-sort="auto"] th:hover {
     padding: 7px 8px;
   }
 
-  .standings-table th:nth-child(2),
-  .standings-table td:nth-child(2) {
+  /* при прокрутке таблицы вбок остаётся на месте колонка с именем (в H2H — с этапом) */
+  .sticky-col {
     position: sticky;
     left: 0;
     background: var(--surface);
     z-index: 1;
+    box-shadow: 1px 0 0 var(--line);
   }
 
-  .modal .standings-table th:nth-child(2),
-  .modal .standings-table td:nth-child(2) {
-    position: static;
+  /* Итоговые зачёты: при прокрутке вбок закреплено всё до имени (пилоты: #, ±, номер,
+     гонщик; команды: #, команда; владельцы: #, номер, команда). У закреплённых колонок
+     фиксированная ширина — от неё считаются отступы left следующих */
+  .pin {
+    position: sticky;
+    background: var(--surface);
+    z-index: 1;
+  }
+
+  .pin-l0 { left: 0; }
+  .pin-l36 { left: 36px; }
+  .pin-l76 { left: 76px; }
+  .pin-l84 { left: 84px; }
+  .pin-l120 { left: 120px; }
+
+  .standings-table .pw36 { width: 36px; min-width: 36px; max-width: 36px; padding-inline: 4px; }
+  .standings-table .pw40 { width: 40px; min-width: 40px; max-width: 40px; padding-inline: 4px; }
+  .standings-table .pw44 { width: 44px; min-width: 44px; max-width: 44px; padding-inline: 4px; }
+  .standings-table .pw48 { width: 48px; min-width: 48px; max-width: 48px; padding-inline: 4px; }
+
+  /* последняя закреплённая — с разделителем; имя/команда не шире 150px, переносится */
+  .pin-last {
+    box-shadow: 1px 0 0 var(--line);
+    max-width: 150px;
+    white-space: normal;
+  }
+
+  /* Шапка итоговой таблицы в две строки: «этап + Сезон/Чейз», затем «поиск + Excel» */
+  .table-controls > [id^="upto-"] {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .table-controls > [id^="upto-"] ~ .search-input {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+  }
+
+  [id^="upto-"] .table-upto {
+    flex-wrap: nowrap;
+  }
+
+  [id^="upto-"] .table-upto label {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  [id^="upto-"] .chart-select {
+    width: 100%;
+    max-width: none;
+  }
+
+  [id^="upto-"] .round-toggle.inline {
+    margin-left: 0;
+    flex-wrap: nowrap;
+  }
+
+  .upto-lbl,
+  .upto-note,
+  .lbl-full {
+    display: none;
+  }
+
+  .lbl-short {
+    display: inline;
+  }
+
+  /* топ-5 помещается в ширину телефона без прокрутки */
+  .standings-table.top5 th,
+  .standings-table.top5 td {
+    padding: 6px 4px;
+  }
+
+  /* производитель — сокращением Chv / Frd / Tyt */
+  .mfr-full {
+    display: none;
+  }
+
+  .mfr-short {
+    display: inline;
+  }
+
+  /* второстепенные колонки итоговых зачётов на телефоне не показываем */
+  .hide-sm {
+    display: none;
+  }
+
+  /* KPI на телефоне не показываем — сразу к вкладкам */
+  .kpi-grid {
+    display: none;
+  }
+
+  /* H2H: режим — отдельной строкой, ниже «A vs B» в одну строку на всю ширину */
+  .table-header .h2h-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    width: 100%;
+  }
+
+  .h2h-controls .round-toggle {
+    grid-column: 1 / -1;
+  }
+
+  .h2h-controls .chart-select {
+    width: 100%;
+    max-width: none;
+  }
+
+  /* длинные заголовки карточек переносятся, а не обрезаются многоточием */
+  .table-header h3 {
+    white-space: normal;
+    font-size: 18px;
   }
 
   .pivot-table th,

@@ -84,8 +84,8 @@ const lowerBetter = (x, y) => x < y, higherBetter = (x, y) => x > y;
 
 // Шапка таблицы по парам: сверху группа компонента, под ней короткие имена A и B
 function h2hPairHead(groups, na, nb) {
-  return `<tr class="grp-row"><th></th>${groups.map(g => `<th colspan="2" class="pair-start">${g}</th>`).join('')}</tr>
-<tr><th>Этап</th>${groups.map(() => `<th class="r pair-start">${na}</th><th class="r">${nb}</th>`).join('')}</tr>`;
+  return `<tr class="grp-row"><th class="sticky-col"></th>${groups.map(g => `<th colspan="2" class="pair-start">${g}</th>`).join('')}</tr>
+<tr><th class="sticky-col">Этап</th>${groups.map(() => `<th class="r pair-start">${na}</th><th class="r">${nb}</th>`).join('')}</tr>`;
 }
 
 async function renderH2h() {
@@ -115,7 +115,7 @@ async function renderH2h() {
       ? p.map(x => `<span class="pos-cell ${posClass(x, state.roundMaxPos[rnd] || 40)}">${x}</span>`).join(' ')
       : '<span class="muted">—</span>';
     const both = s => s && s.a.pos.length && s.b.pos.length;
-    rows = d.rounds.map(r => `<tr><td>${roundFullName(r.round)}</td>
+    rows = d.rounds.map(r => `<tr><td class="sticky-col">${roundFullName(r.round)}</td>
   ${h2hPair(r.qual?.a.pos, r.qual?.b.pos, v => posList(v, r.round), () => false)}
   ${h2hPair(both(r.qual) ? r.qual.a.pts : null, both(r.qual) ? r.qual.b.pts : null, (v, side) => (r.qual?.[side].pts || '—'), higherBetter)}
   ${h2hPair(r.race?.a.pos, r.race?.b.pos, v => posList(v, r.round), () => false)}
@@ -145,9 +145,9 @@ async function renderH2h() {
     const val = (x, k) => x ? x[k] : null;
     rows = d.rounds.map(r => {
       const m = metric.has(r.round);
-      const mMark = m ? ' <span class="metric-mark" title="Квалификация по метрике: меньше очков — лучше">(metric)</span>' : '';
+      const mMark = m ? ' <span class="metric-mark" title="Квалификация по метрике: меньше очков — лучше">(m)</span>' : '';
       const { qual: qa, race: ra } = r.a, { qual: qb, race: rb } = r.b;
-      return `<tr><td>${roundFullName(r.round)}${mMark}</td>
+      return `<tr><td class="sticky-col">${roundFullName(r.round)}${mMark}</td>
   ${h2hPair(val(qa, 'pos'), val(qb, 'pos'), (v, side) => posShow(r[side].qual), lowerBetter)}
   ${h2hPair(val(qa, 'pts'), val(qb, 'pts'), v => v ?? '—', m ? lowerBetter : higherBetter)}
   ${h2hPair(qa && qb ? qa.nascar : null, qa && qb ? qb.nascar : null, (v, side) => r[side].qual?.nascar ?? '—', higherBetter)}

@@ -66,32 +66,8 @@
   <main>
 
     <div id="tab-races" class="tab-panel active">
-      <div class="charts-grid">
-        <div class="chart-card">
-          <div class="chart-header">
-            <h3>Пилоты команды</h3>
-            <select class="chart-select" id="team-select-races" onchange="onTeamChange('races')"></select>
-          </div>
-          <div class="chart-wrap"><canvas id="chart-team-races"></canvas></div>
-        </div>
-        <div class="chart-card">
-          <div class="chart-header">
-            <h3>Сравнение пилотов</h3>
-            <div class="ms" id="ms-races">
-              <div class="ms-trigger" id="ms-trigger-races" onclick="toggleMs('races', event)">
-                <span class="ms-label" id="ms-label-races">Выберите пилотов…</span>
-                <span class="ms-arrow">▾</span>
-              </div>
-              <div class="ms-panel" id="ms-panel-races">
-                <input class="ms-search" type="search" placeholder="Поиск…"
-                  oninput="filterMsOptions('races', this.value)">
-                <div class="ms-list" id="ms-list-races"></div>
-              </div>
-            </div>
-          </div>
-          <div class="chart-wrap"><canvas id="chart-drivers-races"></canvas></div>
-        </div>
-      </div>
+      <!-- топ-5 квалификации и гонки последнего этапа (js/app.js renderTop5) -->
+      <div class="charts-grid" id="top5-races"></div>
       <div class="table-card">
         <div class="table-header">
           <h3>Итоговая таблица — Гонки</h3>
@@ -155,32 +131,8 @@
     </div>
 
     <div id="tab-quals" class="tab-panel">
-      <div class="charts-grid">
-        <div class="chart-card">
-          <div class="chart-header">
-            <h3>Пилоты команды</h3>
-            <select class="chart-select" id="team-select-quals" onchange="onTeamChange('quals')"></select>
-          </div>
-          <div class="chart-wrap"><canvas id="chart-team-quals"></canvas></div>
-        </div>
-        <div class="chart-card">
-          <div class="chart-header">
-            <h3>Сравнение пилотов</h3>
-            <div class="ms" id="ms-quals">
-              <div class="ms-trigger" id="ms-trigger-quals" onclick="toggleMs('quals', event)">
-                <span class="ms-label" id="ms-label-quals">Выберите пилотов…</span>
-                <span class="ms-arrow">▾</span>
-              </div>
-              <div class="ms-panel" id="ms-panel-quals">
-                <input class="ms-search" type="search" placeholder="Поиск…"
-                  oninput="filterMsOptions('quals', this.value)">
-                <div class="ms-list" id="ms-list-quals"></div>
-              </div>
-            </div>
-          </div>
-          <div class="chart-wrap"><canvas id="chart-drivers-quals"></canvas></div>
-        </div>
-      </div>
+      <!-- топ-5 квалификации и гонки последнего этапа (js/app.js renderTop5) -->
+      <div class="charts-grid" id="top5-quals"></div>
       <div class="table-card">
         <div class="table-header">
           <h3>Итоговая таблица — Квалификации</h3>
@@ -313,7 +265,7 @@
       <div class="pivot-card">
         <div class="table-header">
           <h3>Head-to-head</h3>
-          <div class="table-controls">
+          <div class="table-controls h2h-controls">
             <div class="round-toggle">
               <button class="rtog-btn rtog-active" data-h2h="drivers" onclick="setH2hMode('drivers')">Пилоты</button>
               <button class="rtog-btn" data-h2h="teams" onclick="setH2hMode('teams')">Команды</button>

@@ -199,7 +199,8 @@ function roundLabel(n) {
 const DQ_MARK = '<span class="dq-mark" title="Дисквалификация: этап не в зачёт">DQ</span>';
 
 function coalMark(team) {
-  return state.coalitions?.has(team) ? ' <span class="coal-mark" title="В коалиции">🤝</span>' : '';
+  // неразрывный пробел: значок не переносится на отдельную строку от названия команды
+  return state.coalitions?.has(team) ? '&nbsp;<span class="coal-mark" title="В коалиции">🤝</span>' : '';
 }
 
 /* Штраф с листа Deductions: из очков он уже вычтен, метка идёт перед ними и показывает,
@@ -240,9 +241,16 @@ function driverLink(driver, mode, label) {
     + (name !== label ? ' <span class="guest-mark" title="Гостевая заявка">(i)</span>' : '');
 }
 
+const MFR_SHORT = { Chevy: 'Chv', Ford: 'Frd', Toyota: 'Tyt' };
+
 function mfrBadge(mfr) {
   if (!mfr || mfr === '-') return '';
-  return `<span class="mfr-badge ${mfrKey(mfr)}">${mfr}</span>`;
+  // на телефоне вместо полного названия — сокращение Chv / Frd / Tyt (переключает CSS)
+  const key = mfrKey(mfr);
+  const short = MFR_SHORT[key];
+  return short
+    ? `<span class="mfr-badge ${key}"><span class="mfr-full">${mfr}</span><span class="mfr-short">${short}</span></span>`
+    : `<span class="mfr-badge ${key}">${mfr}</span>`;
 }
 
 /* Спойлер общих зачётов: первые SHOW_ROWS строк, остальное — по кнопке.

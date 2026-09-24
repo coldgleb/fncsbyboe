@@ -13,24 +13,24 @@ function teamTableHtml(standings, q) {
   const starts = (t, kind) => t.drivers.reduce((n, d) => n + (state.attendance[kind][d]?.size || 0), 0);
   const rows = standings.filter(t => hit(q, t.team, ...t.drivers));
   let html = `<div class="table-scroll"><table class="standings-table" data-sort="auto"><thead><tr>
-<th class="r w-40">#</th>
-<th>Команда</th>
+<th class="r w-40 pin pin-l0 pw36">#</th>
+<th class="pin pin-l36 pin-last">Команда</th>
 <th class="r">Очки</th>
-<th class="r" title="Участий пилотов команды: в гонках / в квалификациях (максимум — пилотов × этапов)">Гонок / Квал.</th>
-<th class="r">Пилотов</th>
+<th class="r hide-sm" title="Участий пилотов команды: в гонках / в квалификациях (максимум — пилотов × этапов)">Гонок / Квал.</th>
+<th class="r hide-sm">Пилотов</th>
   </tr></thead><tbody>`;
 
   for (const t of spoilerRows('teams', rows, q)) {
     const rc = t.rank <= 3 ? `rank-${t.rank}` : '';
     html += `<tr class="${rc}">
-  <td class="r"><span class="pos-badge">${t.rank}</span></td>
-  <td>
+  <td class="r pin pin-l0 pw36"><span class="pos-badge">${t.rank}</span></td>
+  <td class="pin pin-l36 pin-last">
     <strong>${teamLink(t.team)}</strong>${coalMark(t.team)}
     <div class="team-drivers">${t.drivers.sort().map(driverLink).join(' · ')}</div>
   </td>
   <td class="r" title="${scorersTooltip(t)}">${penMark(t)}<strong>${t.total}</strong></td>
-  <td class="r muted">${starts(t, 'races')} / ${starts(t, 'quals')}</td>
-  <td class="r muted">${t.drivers.length}</td>
+  <td class="r muted hide-sm">${starts(t, 'races')} / ${starts(t, 'quals')}</td>
+  <td class="r muted hide-sm">${t.drivers.length}</td>
 </tr>`;
   }
   return html + '</tbody></table></div>' + spoilerHtml('teams', rows.length);
@@ -101,9 +101,9 @@ async function renderOwners() {
   const rows = cut.standings.filter(o => hit(state.ownerFilter, o.car, ...o.drivers));
 
   let html = `<div class="table-scroll"><table class="standings-table" data-sort="auto"><thead><tr>
-<th class="r w-40">#</th>
-<th class="r">Номер</th>
-<th>Команда</th>
+<th class="r w-40 pin pin-l0 pw36">#</th>
+<th class="r pin pin-l36 pw48">Номер</th>
+<th class="pin pin-l84 pin-last">Команда</th>
 <th>Авт.</th>
 <th>Пилоты</th>
 <th class="r" title="Пять лучших финишей">Топ-5</th>
@@ -113,9 +113,9 @@ async function renderOwners() {
   for (const o of spoilerRows('owners', rows, state.ownerFilter)) {
     const rc = o.rank <= 3 ? `rank-${o.rank}` : '';
     html += `<tr class="${rc}">
-  <td class="r"><span class="pos-badge">${o.rank}</span></td>
-  <td class="r">${carBadge(o.car, o.mfr)}</td>
-  <td class="team-text">${teamLink(o.team)}${coalMark(o.team)}</td>
+  <td class="r pin pin-l0 pw36"><span class="pos-badge">${o.rank}</span></td>
+  <td class="r pin pin-l36 pw48">${carBadge(o.car, o.mfr)}</td>
+  <td class="team-text pin pin-l84 pin-last">${teamLink(o.team)}${coalMark(o.team)}</td>
   <td>${mfrBadge(o.mfr)}</td>
   <td class="team-text">${o.drivers.sort().map(driverLink).join(' · ')}</td>
   <td class="r muted">${o.top5.join(' · ') || '—'}</td>

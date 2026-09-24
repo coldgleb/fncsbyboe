@@ -91,6 +91,7 @@ async function ensureTab(tab, fresh = state.fresh) {
   try {
     if (tab === 'races' || tab === 'quals') {
       await renderTable(tab);
+      renderTop5().catch(console.error);
       // сводные и графики ниже по странице: по одной, не задерживая таблицу
       (async () => {
         const [races, quals] = [await rpc('pivot', { ...p, session: 'race' }, fresh),
@@ -100,10 +101,6 @@ async function ensureTab(tab, fresh = state.fresh) {
         renderPivot('quals');
         state.gains = await rpc('gains', p, fresh);
         renderGainPivot();
-        state.races.chartStandings = await rpc('chart_points', { ...p, session: 'race' }, fresh);
-        state.quals.chartStandings = await rpc('chart_points', { ...p, session: 'qual' }, fresh);
-        initCharts('races');
-        initCharts('quals');
       })().catch(console.error);
       return;
     }
@@ -158,6 +155,32 @@ async function ensureTab(tab, fresh = state.fresh) {
   }
 }
 
+/* Топ-5 последнего этапа — квалификация и гонка, над итоговыми таблицами обеих вкладок.
+   Место, участник, команда и очки за прогноз из протокола этапа (DQ без места не показываем). */
+async function renderTop5() {
+  const last = rounds => rounds.filter(r => !SPRINT_ROUNDS.has(r) && r !== 0).pop();
+  const card = async (view, round, title) => {
+    if (round == null) return '';
+    const { rows, metric } = await rpc('round_protocol', { ...season(), round, view }, state.fresh);
+    const top = rows.filter(r => r['Pos.'] != null).slice(0, 5);
+    return `<div class="table-card top5-card">
+  <div class="table-header"><h3><span class="driver-link" title="Открыть протокол этапа" onclick="goToRound(${round}, '${view}')">${title} · ${roundFullName(round)}</span></h3></div>
+  <div class="table-scroll"><table class="standings-table top5"><thead><tr>
+    <th class="r w-40">#</th><th class="r w-44">№</th><th>Участник</th><th>Команда</th>
+    <th class="r" title="Очки за прогноз${metric ? ' — квала по метрике: меньше лучше' : ''}">Очки${metric ? ' <span class="metric-mark">(m)</span>' : ''}</th>
+  </tr></thead><tbody>${top.map(r => `<tr class="${r['Pos.'] <= 3 ? 'rank-' + r['Pos.'] : ''}">
+    <td class="r"><span class="pos-badge">${r['Pos.']}</span></td>
+    <td class="r">${carBadge(r['#'], r['M.'])}</td>
+    <td><strong>${driverLink(r['Driver'])}</strong></td>
+    <td class="team-text">${teamLink(r['Team'])}${coalMark(r['Team'])}</td>
+    <td class="r"><strong>${r['Points'] ?? '—'}</strong></td></tr>`).join('')}</tbody></table></div>
+</div>`;
+  };
+  const html = (await card('qual', last(state.quals.rounds), 'Квалификация'))
+    + (await card('race', last(state.races.rounds), 'Гонка'));
+  for (const t of ['races', 'quals']) document.getElementById(`top5-${t}`).innerHTML = html;
+}
+
 /* Кнопка «Обновить»: выбрасываем кэш листов и тянем свежие данные */
 function refreshData() {
   cacheClear();
@@ -178,7 +201,6 @@ function toggleTheme() {
   document.documentElement.dataset.theme = next;
   try { localStorage.setItem('theme', next); } catch (e) { }
   syncThemeBtn();
-  if (state.races.standings.length) { initCharts('races'); initCharts('quals'); }
 }
 
 syncThemeBtn();
