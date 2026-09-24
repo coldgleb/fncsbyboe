@@ -10,7 +10,7 @@ const COLORS = [
   '#ff8f5e', '#e0699b', '#89b4ff', '#d86c3c', '#4bbf8f',
   '#b06bd6', '#2f9bd8', '#e4c04a', '#9fb0c4', '#f5d90a'
 ];
-const PAGE_SIZE = 20;
+const SHOW_ROWS = 20;   // общие зачёты: столько строк видно до «Показать все»
 
 /* Правила зачётов считает база (db/api.sql). Здесь — только то, что нужно для показа:
    дуэли 1.1/1.2 — часть первого этапа, а Чейз (и его тумблер) — после 26 этапа. */
@@ -43,7 +43,8 @@ const state = {
   filter: { races: '', quals: '' },
   pivot: { races: '', quals: '' },
   golubFilter: { races: '', quals: '' },
-  page: { races: 1, quals: 1 },
+  // раскрыт ли спойлер «Показать все» у зачёта: races, quals, teams, owners
+  showAll: {},
   // Срез зачёта: этап, после которого показываем таблицу (null — последний, т.е. весь сезон)
   upTo: { races: null, quals: null, owners: null },
   // Переключатель «Регулярный сезон / Чейз»: 'auto' — с 27 этапа сам Чейз, до этого
@@ -83,7 +84,7 @@ function toNum(v) {
    Данные за день меняются считанные разы: держим разобранные строки в localStorage
    12 часов. Принудительно свежие — кнопка «Обновить» в шапке (init(true)); обычная
    перезагрузка страницы берёт кэш. Версию поднимаем, когда меняется формат данных. */
-const CACHE_V = 5;   // формат данных сменился — прежний кэш не годится
+const CACHE_V = 6;   // формат данных сменился — прежний кэш не годится
 const CACHE_TTL = 12 * 3600 * 1000;
 const cacheKey = name => `fncs:${CACHE_V}:${state.year}:${name}`;
 
@@ -133,7 +134,8 @@ function loadSheet(name) {
     const cb = `_gviz_${name.replace(/\W/g, '')}_${++jsonpSeq}`;
     const script = document.createElement('script');
     script.src = `https://docs.google.com/spreadsheets/d/${SHEETS_BY_YEAR[state.year]}/gviz/tq`
-      + `?tqx=responseHandler:${cb}&sheet=${encodeURIComponent(name)}`;
+      // headers=1: шапка — всегда первая строка (сам gviz её не узнаёт, если под ней смешанные типы)
+      + `?tqx=responseHandler:${cb}&headers=1&sheet=${encodeURIComponent(name)}`;
     // JSONP умеет молча не ответить — без таймаута страница висит вечно
     const fail = msg => { clearTimeout(timer); delete window[cb]; script.remove(); reject(new Error(msg)); };
     const timer = setTimeout(() => fail(`Лист «${name}» не ответил за 20 секунд`), 20000);
@@ -215,18 +217,27 @@ function penMark(t) {
 const MFR_MATCH = [[/^(toy|tyt)/i, 'Toyota'], [/^(chev|chv)/i, 'Chevy'], [/^(ford|frd)/i, 'Ford']];
 const mfrKey = mfr => MFR_MATCH.find(([re]) => re.test(mfr || ''))?.[1] || mfr;
 
-// Номер машины пилота — в цвете его производителя (тот же набор классов, что у марки)
+// Номер машины пилота — в цветах из листа entries (bg/fg), без них — в цвете производителя
 function carBadge(car, mfr) {
   if (!car || car === '—' || car === '-') return '<span class="muted">—</span>';
   const key = mfrKey(mfr);
-  return `<span class="car-badge${key ? ' ' + key : ''}">${car}</span>`;
+  const c = state.carColors?.[car];
+  const style = c ? ` style="background:#${c.bg};color:#${c.fg};border-color:#${c.bg}"` : '';
+  // клик — карточка машины (зачёт владельцев)
+  return `<span class="car-badge car-link${key ? ' ' + key : ''}"${style} title="Статистика машины #${car}" onclick="openCar('${car}')">${car}</span>`;
 }
 
 /* Ссылка на карточку пилота — одинаково во всех таблицах, сводных и протоколах */
-function driverLink(driver, mode) {
+/* Гостевая метка «(i)» в имени выводится не текстом, а серой меткой после ссылки.
+   Зовут и как .map(driverLink) — тогда вторым и третьим аргументом приходят индекс и массив */
+function driverLink(driver, mode, label) {
   if (!driver) return '—';
+  if (typeof mode !== 'string') mode = null;
+  if (typeof label !== 'string') label = driver;
   const arg = driver.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-  return `<span class="driver-link" onclick="openDriver('${arg}'${mode ? `,'${mode}'` : ''})">${driver}</span>`;
+  const name = label.replace(' (i)', '');
+  return `<span class="driver-link" onclick="openDriver('${arg}'${mode ? `,'${mode}'` : ''})">${name}</span>`
+    + (name !== label ? ' <span class="guest-mark" title="Гостевая заявка">(i)</span>' : '');
 }
 
 function mfrBadge(mfr) {
@@ -234,17 +245,25 @@ function mfrBadge(mfr) {
   return `<span class="mfr-badge ${mfrKey(mfr)}">${mfr}</span>`;
 }
 
-// Общий блок страниц: onClick — функция, отдающая содержимое onclick для страницы p
-function paginationHtml(page, pages, info, onClick) {
-  let html = '<div class="pagination">';
-  if (pages > 1) {
-    if (page > 1) html += `<button class="page-btn" onclick="${onClick(page - 1)}">←</button>`;
-    const lo = Math.max(1, page - 2), hi = Math.min(pages, page + 2);
-    for (let p = lo; p <= hi; p++)
-      html += `<button class="page-btn${p === page ? ' active' : ''}" onclick="${onClick(p)}">${p}</button>`;
-    if (page < pages) html += `<button class="page-btn" onclick="${onClick(page + 1)}">→</button>`;
-  }
-  return html + `<span class="page-info">${info}</span></div>`;
+/* Спойлер общих зачётов: первые SHOW_ROWS строк, остальное — по кнопке.
+   При поиске показываем все найденные — прятать совпадения незачем. */
+const spoilerRows = (key, rows, q) => q || state.showAll[key] ? rows : rows.slice(0, SHOW_ROWS);
+
+function spoilerHtml(key, total) {
+  if (total <= SHOW_ROWS) return '';
+  return `<div class="pagination"><button class="page-btn" onclick="toggleShowAll('${key}')">`
+    + `${state.showAll[key] ? 'Свернуть' : `Показать все (${total})`}</button></div>`;
+}
+
+function toggleShowAll(key) {
+  state.showAll[key] = !state.showAll[key];
+  const redraw = {
+    teams: renderTeams, owners: renderOwners, gains: renderGainPivot, entries: renderEntries,
+    teamPivot: renderTeamPivot, teamPosPivot: renderTeamPosPivot,
+    'pivot-races': () => renderPivot('races'), 'pivot-quals': () => renderPivot('quals'),
+    'golub-races': () => renderGolub('races'), 'golub-quals': () => renderGolub('quals'),
+  };
+  (redraw[key] || (() => renderTable(key)))();
 }
 
 /* ── Сортировка по клику на заголовок для любой таблицы с data-sort="auto" ──
@@ -405,16 +424,19 @@ function posClass(pos, maxPos) {
 
 /* Переключение дивизиона — перезагрузкой страницы: данные, фильтры, страницы, сортировки
    и графики другого дивизиона всё равно надо сбросить полностью, а дивизион уже в хэше. */
+// Смена дивизиона и сезона перезагружает страницу, но оставляет открытую вкладку
+const activeTab = () => document.querySelector('.tab-btn.active')?.dataset.tab || 'races';
+
 function switchDivision(name) {
   if (name === state.division || !DIVISIONS[name]) return;
-  location.hash = `year=${state.year}&div=${name}&tab=races`;
+  location.hash = `year=${state.year}&div=${name}&tab=${activeTab()}`;
   location.reload();
 }
 
 function switchYear(year) {
   year = Number(year);
   if (year === state.year || !SEASONS.includes(year)) return;
-  location.hash = `year=${year}&div=${state.division}&tab=races`;
+  location.hash = `year=${year}&div=${state.division}&tab=${activeTab()}`;
   location.reload();
 }
 
@@ -427,7 +449,8 @@ function applyDivision() {
   const hidden = [...(div.golub ? [] : ['golub']), ...(div.entries ? [] : ['entries'])];
   for (const tab of ['golub', 'entries']) {
     const on = !hidden.includes(tab);
-    document.querySelector(`.tab-btn[data-tab="${tab}"]`).style.display = on ? '' : 'none';
+    const btn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
+    if (btn) btn.style.display = on ? '' : 'none';
     if (!on && document.querySelector('.tab-btn.active')?.dataset.tab === tab) switchTab('races');
   }
 }
@@ -466,7 +489,7 @@ function applyHash() {
   // вкладка из ссылки может быть скрыта в этом дивизионе — тогда остаёмся на гонках
   const tab = p.get('tab');
   const btn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
-  if (tab && document.getElementById(`tab-${tab}`) && btn?.style.display !== 'none') switchTab(tab);
+  if (tab && document.getElementById(`tab-${tab}`) && btn && btn.style.display !== 'none') switchTab(tab);
 
   // этап из ссылки: протоколы к этому моменту могли ещё не грузиться
   const round = p.get('round');

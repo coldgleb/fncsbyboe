@@ -71,7 +71,7 @@ function renderEntries() {
 ${ENTRIES_COLS.map(([label, , title]) => `<th class="${colClass(label)}" title="${title}">${label}</th>`).join('')}
 </tr></thead><tbody>`;
 
-  for (const t of rows) {
+  for (const t of spoilerRows('entries', rows, state.entriesFilter)) {
     html += `<tr class="${t.rank <= 3 ? 'rank-' + t.rank : ''}">
   <td><span class="pos-badge">${t.rank}</span></td>
   <td class="driver-cell">${teamLink(t.team)}${coalMark(t.team)}</td>
@@ -79,7 +79,7 @@ ${ENTRIES_COLS.map(([label, , title]) => `<th class="${colClass(label)}" title="
 </tr>`;
   }
   document.getElementById('table-entries').innerHTML = html + '</tbody></table></div>'
-    + `<div class="pagination"><span class="page-info">${rows.length} команд</span></div>`;
+    + spoilerHtml('entries', rows.length);
 }
 
 async function setEntriesUpTo(val) {

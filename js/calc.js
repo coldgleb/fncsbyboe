@@ -22,9 +22,9 @@ const num=x=>x==null?'':String(x);
 function normName(s){return (s||'').toLowerCase().replace(/[^a-zа-я0-9]+/gi,' ').trim();}
 
 // ===================== STORAGE =====================
-// Два калькулятора — Open и Star — со своими участниками и сохранением.
-// У Open ключ прежний, чтобы уже сохранённые прогнозы не потерялись
-let calcKind=(()=>{try{const k=localStorage.getItem('fncs_calc_kind');if(k==='open'||k==='star')return k;}catch(e){}return site.division==='star'?'star':'open';})();
+// Два калькулятора — Open и Star — со своими участниками и сохранением; какой из них —
+// решает дивизион, выбранный в шапке сайта. У Open ключ прежний, чтобы сохранённое не потерялось
+let calcKind=site.division==='star'?'star':'open';
 const storeKey=()=>calcKind==='star'?'nascar_pred_star_v1':'nascar_pred_v5';
 const isStar=()=>calcKind==='star';
 async function loadState(){try{const r=localStorage.getItem(storeKey());return r?JSON.parse(r):null;}catch(e){return null;}}
@@ -346,14 +346,15 @@ const SORT_ASC=new Set(['name','qrank']);   // первый клик — по в
 // ===================== RENDER =====================
 function render(){
   const root=document.getElementById('calc-root');root.innerHTML='';
-  root.appendChild(el('div',{class:'round-bar'},el('label',{class:'round-label'},'Калькулятор'),
-    el('div',{class:'round-toggle'},...['open','star'].map(k=>
-      el('button',{class:'rtog-btn'+(calcKind===k?' rtog-active':''),onclick:()=>switchCalc(k)},DIVISIONS[k].label)))));
+  // дивизион выбирается в шапке сайта
+  root.appendChild(el('div',{class:'round-bar'},el('label',{class:'round-label'},'Калькулятор · '+DIVISIONS[calcKind].label)));
   const P=state.participants;
   const ec=effCaution(),er=effRet();
 
   const scores=computeAllScores(P);
-  let ranked=P.map((_,i)=>i);
+  // не прошедшие в гонку этапа в таблицу не выводятся (остаются в сохранении — вернутся при другом этапе)
+  const missed=P.filter(p=>qualMissedRace(p));
+  let ranked=P.map((_,i)=>i).filter(i=>!qualMissedRace(P[i]));
   const sortFn=SORT_KEYS[state.sort?.key];
   if(sortFn){
     const k=state.sort.dir==='asc'?1:-1;
@@ -372,10 +373,15 @@ function render(){
       saveState(state);render();
     }},label,...extra,state.sort?.key===key?el('span',{class:'sort-arrow'},state.sort.dir==='asc'?' ▲':' ▼'):null);
 
-  // header
+  // header: название гонки и справа «?» — как пользоваться (текст — в calc-help.html)
+  const help=el('div',{class:'calc-help',style:helpOpen?'':'display:none'});
   root.appendChild(el('div',{class:'hd'},
     el('input',{class:'race',placeholder:'Название гонки',value:state.raceName,
-      oninput:e=>{state.raceName=e.target.value;saveState(state);}})));
+      oninput:e=>{state.raceName=e.target.value;saveState(state);}}),
+    el('button',{class:'page-btn icon-btn',title:'Как пользоваться калькулятором',onclick:()=>{
+      helpOpen=!helpOpen;help.style.display=helpOpen?'':'none';if(helpOpen)fillHelp(help);}},'?')));
+  root.appendChild(help);
+  if(helpOpen)fillHelp(help);
 
   renderSources(root);
   if(isStar())renderDuelPairs(root);
@@ -388,7 +394,7 @@ function render(){
   if(ec!=null)sumbar.appendChild(el('span',{class:'sumitem fact-hd'},'Жёлтые: '+ec));
   if(er!=null)sumbar.appendChild(el('span',{class:'sumitem fact-hd'},'Сходы: '+er));
   card.appendChild(el('div',{class:'table-header'},
-    el('h3',{},'Участники · '+P.length),sumbar));
+    el('h3',{},'Участники · '+ranked.length),sumbar));
 
   const wrap=el('div',{class:'table-scroll tscroll'});
   const tbl=el('table',{class:'standings-table ptbl'});
@@ -491,11 +497,12 @@ function render(){
   tbl.appendChild(tbody);
   wrap.appendChild(tbl);
   card.appendChild(wrap);
+  if(missed.length)card.appendChild(el('div',{class:'sub'},
+    `Не прошли в гонку этапа ${state.round} и скрыты: ${missed.map(p=>p.name).join(', ')}`));
   root.appendChild(card);
 
   root.appendChild(el('div',{class:'addrow'},
     el('button',{class:'add',onclick:()=>{state.participants.push(newParticipant('Участник '+(P.length+1)));saveState(state);render();}},'+ участник'),
-    el('button',{class:'io',onclick:()=>exportResults()},'⤓ Результаты (TSV)'),
     el('button',{class:'io',onclick:()=>exportData()},'⤓ Экспорт JSON'),
     el('button',{class:'io',onclick:()=>importData()},'⤒ Импорт JSON'),
     el('button',{class:'reset',onclick:async()=>{if(confirm('Очистить всё?')){state=JSON.parse(JSON.stringify(DEFAULT));await saveState(state);render();}}},'Очистить всё')));
@@ -521,28 +528,6 @@ function exportData(){
   download(`${safeName()}_прогнозы.json`,JSON.stringify(payload,null,2),'application/json');
 }
 
-// Итоговая таблица в TSV: Round Pos. # Driver Team M. QL DR1..DR4 CAU RET MN Points
-const MFG_SHORT={Chv:'Chevy',Frd:'Ford',Tyt:'Toyota'};
-function resultRows(round){
-  const P=state.participants, scores=computeAllScores(P);
-  const order=P.map((_,i)=>i).sort((a,b)=>scores[b].grand-scores[a].grand);
-  const dash=v=>(v===''||v==null)?'-':v;
-  return order.map((pi,i)=>{
-    const p=P[pi],s=scores[pi];
-    // 1-2-2-4: равные суммы делят место
-    const pos=order.findIndex(j=>scores[j].grand===s.grand)+1;
-    return [round,pos,dash(p.carNum),dash(p.name),dash(p.team),dash(MFG_SHORT[p.mfg]),
-      s.qrPts,...s.rows.map(r=>+r.racePts||0),s.cauPts,s.retPts,s.mPts,...(isStar()?[s.dueRace]:[]),s.grand].join('\t');
-  });
-}
-function exportResults(){
-  const round=prompt('Номер этапа (Round):',state.round||'1');
-  if(round===null)return;
-  state.round=round; saveState(state);
-  // у Star после MN идёт DUE — как на листе Star Races
-  const head='Round\tPos.\t#\tDriver\tTeam\tM.\tQL\tDR1\tDR2\tDR3\tDR4\tCAU\tRET\tMN\t'+(isStar()?'DUE\t':'')+'Points';
-  download(`${safeName()}_R${round}.tsv`,'﻿'+[head,...resultRows(round)].join('\r\n'),'text/tab-separated-values');
-}
 function importData(){
   const inp=document.createElement('input');
   inp.type='file'; inp.accept='application/json,.json';
@@ -765,7 +750,9 @@ function hasPredictions(p){
 }
 function setTeam(team){
   const drivers=sheets().drivers, ranks=driverRanks();
-  const names=Object.keys(drivers).filter(n=>drivers[n].team===team)
+  const starters=raceStarters();
+  // протокол гонки этапа есть — берём только прошедших в гонку
+  const names=Object.keys(drivers).filter(n=>drivers[n].team===team&&(!starters||starters.has(n)))
     // гости и пилоты вне зачёта — в конец, по алфавиту
     .sort((a,b)=>(ranks[a]??Infinity)-(ranks[b]??Infinity)||a.localeCompare(b,'ru'));
   const lost=state.participants.filter(p=>!names.includes(p.name)&&hasPredictions(p));
@@ -797,12 +784,17 @@ function sheetQualPlace(p){
 
 /* Непроходное место: участник квалифицировался, но в гонку этапа не попал — очки за
    результат квалификации ему не идут. Пока протокол гонки не загружен, никого не отсекаем. */
-function qualMissedRace(p){
-  if(!state||state.round==null||state.round==='')return false;
+// Стартовавшие в гонке выбранного этапа; null — этап не выбран или протокола гонки ещё нет
+function raceStarters(){
+  if(!state||state.round==null||state.round==='')return null;
   const rows=sheets().raceRows;
-  if(!rows||!rows.length)return false;
-  const starters=new Set(rows.filter(r=>r['Round']===+state.round&&r['Driver']).map(r=>r['Driver']));
-  return starters.size>0&&!starters.has(p.name);
+  if(!rows||!rows.length)return null;
+  const set=new Set(rows.filter(r=>r['Round']===+state.round&&r['Driver']).map(r=>r['Driver']));
+  return set.size?set:null;
+}
+function qualMissedRace(p){
+  const starters=raceStarters();
+  return !!starters&&!starters.has(p.name);
 }
 function roundSelect(){
   const q=DIVISIONS[calcKind].quals;
@@ -859,13 +851,23 @@ function duelCell(p,s){
   return td;
 }
 
+/* ── Справка «?»: текст лежит в calc-help.html рядом с index.html — его можно править
+   без кода. Грузим один раз при первом открытии. ── */
+let helpOpen=false, helpHtml=null;
+function fillHelp(box){
+  if(helpHtml!=null){box.innerHTML=helpHtml;return;}
+  box.textContent='Загрузка…';
+  fetch('calc-help.html',{cache:'no-cache'}).then(r=>{if(!r.ok)throw new Error(r.status);return r.text();})
+    .then(t=>{helpHtml=t;box.innerHTML=t;})
+    .catch(()=>{box.textContent='Не удалось загрузить справку (calc-help.html).';});
+}
+
 /* ── Переключение калькулятора: у каждого своё сохранение ── */
 let pendingRender=false;
 
 async function switchCalc(kind,withSheets=true){
   if(state){ if(kind===calcKind)return; await saveState(state); }
   calcKind=kind;
-  try{localStorage.setItem('fncs_calc_kind',kind);}catch(e){}
   if(withSheets)loadSheets(kind);
   const l=await loadState();
   state=l||JSON.parse(JSON.stringify(DEFAULT));
@@ -876,5 +878,8 @@ async function switchCalc(kind,withSheets=true){
 }
 // протоколы калькулятору нужны только когда вкладку открыли — их дёргает ensureTab
 window.calcLoadSheets=()=>{loadSheets(calcKind);if(pendingRender&&state){pendingRender=false;render();}};
+// Страница открыта сразу на калькуляторе (#tab=calc): с кэшем листов сайт успевает открыть
+// вкладку до загрузки этого файла — тогда ensureTab не нашёл calcLoadSheets, грузим сами
+if(typeof tabReady!=='undefined'&&tabReady.calc)window.calcLoadSheets();
 switchCalc(calcKind,false);
 })(state);

@@ -20,7 +20,7 @@ function teamTableHtml(standings, q) {
 <th class="r">Пилотов</th>
   </tr></thead><tbody>`;
 
-  for (const t of rows) {
+  for (const t of spoilerRows('teams', rows, q)) {
     const rc = t.rank <= 3 ? `rank-${t.rank}` : '';
     html += `<tr class="${rc}">
   <td class="r"><span class="pos-badge">${t.rank}</span></td>
@@ -33,7 +33,7 @@ function teamTableHtml(standings, q) {
   <td class="r muted">${t.drivers.length}</td>
 </tr>`;
   }
-  return html + '</tbody></table></div>';
+  return html + '</tbody></table></div>' + spoilerHtml('teams', rows.length);
 }
 
 function renderTeams() {
@@ -68,7 +68,6 @@ function ownersAt() {
 function setOwnersUpTo(val) {
   const rounds = roundsOf('owners'), n = parseFloat(val);
   state.upTo.owners = n === rounds[rounds.length - 1] ? null : n;
-  state.ownerPage = 1;
   renderOwners();
 }
 
@@ -111,9 +110,7 @@ async function renderOwners() {
 <th class="r">Очки</th>
   </tr></thead><tbody>`;
 
-  const page = state.ownerPage || 1;
-  const pages = Math.ceil(rows.length / PAGE_SIZE);
-  for (const o of rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)) {
+  for (const o of spoilerRows('owners', rows, state.ownerFilter)) {
     const rc = o.rank <= 3 ? `rank-${o.rank}` : '';
     html += `<tr class="${rc}">
   <td class="r"><span class="pos-badge">${o.rank}</span></td>
@@ -126,7 +123,7 @@ async function renderOwners() {
 </tr>`;
   }
   document.getElementById('table-owners').innerHTML = html + '</tbody></table></div>'
-    + paginationHtml(page, pages, `${rows.length} машин`, p => `goOwnerPage(${p})`);
+    + spoilerHtml('owners', rows.length);
 }
 
 // Все машины целиком, без пагинации и поиска на экране
@@ -143,14 +140,8 @@ async function exportOwnersXLSX() {
   ], 'Зачёт владельцев', `${exportSeriesLabel()} зачёт владельцев.xlsx`);
 }
 
-function goOwnerPage(p) {
-  state.ownerPage = p;
-  renderOwners();
-}
-
 function filterOwners(val) {
   state.ownerFilter = val;
-  state.ownerPage = 1;
   renderOwners();
 }
 
@@ -172,7 +163,7 @@ function renderTeamPivot() {
     <th>Итого</th>
   </tr></thead><tbody>`;
 
-  for (const t of teams) {
+  for (const t of spoilerRows('teamPivot', teams, state.teamPivotFilter)) {
     html += `<tr class="${t.rank <= 3 ? 'rank-' + t.rank : ''}">
       <td class="driver-cell">${teamPlaceBadge(t)} ${teamLink(t.team)}${coalMark(t.team)}</td>`;
     let cum = 0;   // накопленное со штрафом с его этапа — из базы (cumPts)
@@ -183,7 +174,7 @@ function renderTeamPivot() {
     }
     html += `<td class="total-cell">${t.total}</td></tr>`;
   }
-  document.getElementById('pivot-teams').innerHTML = html + '</tbody></table>';
+  document.getElementById('pivot-teams').innerHTML = html + '</tbody></table>' + spoilerHtml('teamPivot', teams.length);
   // штрафы показываем сноской: в самой таблице остаются только набранные очки
   const penalties = state.teamPivot.filter(t => t.penalty);
   document.getElementById('pivot-teams-note').innerHTML = penalties.length
@@ -209,7 +200,7 @@ function renderTeamPosPivot() {
     <th>Итого</th>
   </tr></thead><tbody>`;
 
-  for (const t of teams) {
+  for (const t of spoilerRows('teamPosPivot', teams, state.teamPosFilter)) {
     html += `<tr class="${t.rank <= 3 ? 'rank-' + t.rank : ''}">
       <td class="driver-cell">${teamPlaceBadge(t)} ${teamLink(t.team)}${coalMark(t.team)}</td>`;
     for (const r of rounds) {
@@ -223,7 +214,7 @@ function renderTeamPosPivot() {
     }
     html += `<td class="total-cell">${penMark(t)}${t.total}</td></tr>`;
   }
-  document.getElementById('pivot-teams-pos').innerHTML = html + '</tbody></table>';
+  document.getElementById('pivot-teams-pos').innerHTML = html + '</tbody></table>' + spoilerHtml('teamPosPivot', teams.length);
 }
 
 function filterTeamPosPivot(val) {

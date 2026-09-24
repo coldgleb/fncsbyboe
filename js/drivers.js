@@ -48,7 +48,6 @@ function setUpTo(type, val) {
   const rounds = roundsOf(type);
   const n = parseFloat(val);
   state.upTo[type] = n === rounds[rounds.length - 1] ? null : n;
-  state.page[type] = 1;
   renderTable(type);
 }
 
@@ -77,7 +76,7 @@ ${th('driver', 'Гонщик', '', '')}
 ${th('team', 'Команда', '', '')}
 ${th('mfr', 'Авт.', '', '')}
 ${th('total', 'Очки')}
-${th('chase', '± Чейз', 'title="В Чейзе — отрыв от лидера Чейза, ниже границы — отставание от 17-го места; в регулярном сезоне — до отсечки топ-16"')}
+${th('chase', '± Чейз', 'title="В Чейзе — отрыв от лидера Чейза, ниже границы — отставание от 17-го места; в регулярном сезоне — до отсечки топ-16 (всем, включая гостей и не прошедших ценз), а с 26 этапа — от лидера"')}
 ${th('best', 'Лучший', 'title="Лучший результат и сколько раз он показан"')}
 ${th('starts', 'Гонок / Квал.', 'title="Проходов в гонку / участий в квалификации"')}
   </tr></thead><tbody>`;
@@ -94,10 +93,12 @@ ${th('starts', 'Гонок / Квал.', 'title="Проходов в гонку 
   <td class="r"><span class="pos-badge"${placeOf && place != null ? ` title="Место в зачёте: ${s.rank}"` : ''}>${place ?? '—'}</span></td>
   <td class="r">${s.isGuest ? '<span class="muted">—</span>' : deltaCell(prevRank[s.driver], s.rank)}</td>
   <td class="r">${carBadge(s.car, s.mfr)}</td>
-  <td><strong>${driverLink(s.driver, quals ? 'quals' : null)}</strong></td>
+  <td><strong>${driverLink(s.driver, quals ? 'quals' : null, s.driver.replace(' (i)', ''))}</strong></td>
   <td class="team-text">${teamLink(s.team)}${coalMark(s.team)}</td>
   <td>${mfrBadge(s.mfr)}</td>
-  <td class="r"><strong>${s.total}</strong></td>
+  <td class="r">${s.isGuest
+    ? `<span class="muted" title="Гость: очки считаются как у боевого пилота, но вне основного зачёта">${s.total} <span class="guest-mark">(i)</span></span>`
+    : `<strong>${s.total}</strong>`}</td>
   <td class="r">${gapCell(s)}</td>
   <td class="r">${bestCell(s)}</td>
   <td class="r muted">${starts('races', s.driver)} / ${starts('quals', s.driver)}</td>
@@ -145,12 +146,10 @@ async function renderTable(type) {
     return `<th class="${cls} sortable" ${attrs} onclick="sortTable('${type}','${key}')">${label}${arrow}</th>`;
   };
 
-  const page = state.page[type];
-  const pages = Math.ceil(rows.length / PAGE_SIZE);
-  const slice = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const slice = spoilerRows(type, rows, q);
 
   // При своей сортировке места нумеруются 1..n заново (сквозной номер по всему rows,
-  // не только по странице) — гостей при этом пропускаем, у них номера нет вообще
+  // не только по видимым строкам) — гостей при этом пропускаем, у них номера нет вообще
   let sortSeq = 0;
   const sortPlaceOf = sort ? rows.map(s => (s.isGuest ? null : ++sortSeq)) : null;
 
@@ -174,9 +173,9 @@ async function renderTable(type) {
   const html = (uptoContainer ? '' : uptoHtml)
     + standingsTableHtml(slice, {
       prevRank, at, quals: /quals/i.test(type), sortTh,
-      placeOf: sort ? (_, i) => sortPlaceOf[(page - 1) * PAGE_SIZE + i] : null,
+      placeOf: sort ? (_, i) => sortPlaceOf[i] : null,
     })
-    + paginationHtml(page, pages, `${rows.length} участников`, p => `goPage('${type}',${p})`);
+    + spoilerHtml(type, rows.length);
 
   wrap.innerHTML = html;
   if (uptoContainer) uptoContainer.innerHTML = uptoHtml;
@@ -201,13 +200,11 @@ function sortTable(type, key) {
   state.sort[type] = !cur || cur.key !== key ? { key, dir: 'asc' }
     : cur.dir === 'asc' ? { key, dir: 'desc' }
       : null;
-  state.page[type] = 1;
   renderTable(type);
 }
 
 function filterTable(type, val) {
   state.filter[type] = val;
-  state.page[type] = 1;
   renderTable(type);
 }
 
@@ -242,11 +239,6 @@ async function exportStandingsXLSX(type) {
   ], STANDINGS_SHEET[type], `${exportSeriesLabel()} ${STANDINGS_SHEET[type].toLowerCase()}${isLast ? '' : ` после ${fmtRoundNum(at)} этапа`}.xlsx`);
 }
 
-function goPage(type, p) {
-  state.page[type] = p;
-  renderTable(type);
-}
-
 /* Сводная «пилот × этап» считается в базе (api.pivot): места по этапам, место в квале,
    итог строки. Грузится вместе с вкладкой; экспорт при необходимости дотягивает сам. */
 async function pivotOf(type) {
@@ -276,7 +268,7 @@ ${rounds.map(r => `<th title="${roundFullName(r)}">${roundLabel(r)}</th>`).join(
 <th>Итого</th>
   </tr></thead><tbody>`;
 
-  for (const driver of drivers) {
+  for (const driver of spoilerRows(`pivot-${type}`, drivers, q)) {
     const rank = rankOf[driver];
     const dmap = map[driver] || {};
     const qmap = qualMap ? (qualMap[driver] || {}) : null;
@@ -299,7 +291,7 @@ ${rounds.map(r => `<th title="${roundFullName(r)}">${roundLabel(r)}</th>`).join(
     html += `<td class="total-cell">${total}</td></tr>`;
   }
 
-  html += '</tbody></table>';
+  html += '</tbody></table>' + spoilerHtml(`pivot-${type}`, drivers.length);
   wrap.innerHTML = html;
 }
 
@@ -381,7 +373,8 @@ const gainClass = v => v > 0 ? 'up' : v < 0 ? 'down' : '';
 const signed = v => (v > 0 ? '+' : '') + v;
 
 function renderGainPivot() {
-  const rounds = state.races.rounds.filter(r => !SPRINT_ROUNDS.has(r));
+  // тумблер «Скрыть подробные результаты»: остаются только итоговые столбцы
+  const rounds = state.gainBrief ? [] : state.races.rounds.filter(r => !SPRINT_ROUNDS.has(r));
   const list = state.gains.filter(g => hit(state.gainFilter, g.driver, g.team));
 
   let html = `<table class="pivot-table" data-sort="auto"><thead><tr>
@@ -393,10 +386,9 @@ ${rounds.map(r => `<th title="${roundFullName(r)}">${roundLabel(r)}</th>`).join(
 <th title="В среднем за этап">Сред.</th>
   </tr></thead><tbody>`;
 
-  for (const g of list) {
+  for (const g of spoilerRows('gains', list, state.gainFilter)) {
     html += `<tr class="${g.rank <= 3 ? 'rank-' + g.rank : ''}">
-  <td class="driver-cell"><span class="pos-badge">${g.rank}</span> <span class="driver-link" onclick="openDriver('${jsArg(g.driver)}')">${g.driver}</span>${coalMark(g.team)}
-  <div class="team-drivers">${teamLink(g.team)}</div></td>`;
+  <td class="driver-cell"><span class="pos-badge">${g.rank}</span> ${driverLink(g.driver)}${coalMark(g.team)}</td>`;
     for (const r of rounds) {
       const c = g.cells[r];
       html += c == null
@@ -408,7 +400,12 @@ ${rounds.map(r => `<th title="${roundFullName(r)}">${roundLabel(r)}</th>`).join(
   <td class="total-cell"><span class="${gainClass(g.net)}">${signed(g.net)}</span></td>
   <td><span class="${gainClass(g.net)}">${signed(+(g.net / g.n).toFixed(1))}</span></td></tr>`;
   }
-  document.getElementById('pivot-gains').innerHTML = html + '</tbody></table>';
+  document.getElementById('pivot-gains').innerHTML = html + '</tbody></table>' + spoilerHtml('gains', list.length);
+}
+
+function toggleGainBrief(on) {
+  state.gainBrief = on;
+  renderGainPivot();
 }
 
 function filterGains(val) {

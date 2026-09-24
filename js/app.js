@@ -1,14 +1,19 @@
 /* KPI, загрузка данных и запуск */
 
-/* Шапка: одна строка с дивизионом, этапами, участниками и временем обновления —
-   она же стоит на месте прежних четырёх плиток. */
+/* Шапка: плитки — дивизион, гонок, квалификаций, участников, команд */
 function renderKPI() {
   const { numRaces, numQuals, drivers, teams } = state.kpi;
-  // у кэшированных листов показываем время их загрузки, а не «сейчас»
-  const upd = new Date(state.dataTs ?? Date.now()).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-  const meta = `Дивизион ${DIVISIONS[state.division].label} · ${numRaces} гонок · ${numQuals} квалификаций · `
-    + `${drivers} участников · ${teams} команд · обновлено ${upd}`;
-  document.getElementById('kpi-grid').innerHTML = `<div class="season-meta">${meta}</div>`;
+  const card = (label, value) => `<div class="kpi-card">
+  <div class="kpi-label">${label}</div>
+  <div class="kpi-value">${value}</div>
+</div>`;
+  document.getElementById('kpi-grid').innerHTML = [
+    card('Дивизион', DIVISIONS[state.division].label),
+    card('Гонок', numRaces),
+    card('Квалификаций', numQuals),
+    card('Участников', drivers),
+    card('Команд', teams),
+  ].join('');
 }
 
 async function init(fresh) {
@@ -53,6 +58,7 @@ function applyMain(m) {
   state.deductions = m.deductions;
   state.teamOf = m.teamOf;
   state.carOf = m.carOf || {};
+  state.carColors = m.carColors || {};
   state.roundMaxPos = m.roundMaxPos;
   state.attendance = { races: setsOf(m.attendance.races), quals: setsOf(m.attendance.quals) };
   state.qualsParticipation = setsOf(m.qualsParticipation);
@@ -130,6 +136,13 @@ async function ensureTab(tab, fresh = state.fresh) {
       return;
     }
 
+    if (tab === 'h2h') {
+      // список команд для режима «Команды» — сводная, включая команды из одних гостей
+      state.h2hTeams = await rpc('team_standings', { ...p, upto: 1000, with_guest_only: true }, fresh);
+      initH2h();
+      return;
+    }
+
     if (tab === 'calc') {
       if (typeof calcLoadSheets === 'function') calcLoadSheets();
       return;
@@ -155,7 +168,9 @@ function refreshData() {
    поэтому после смены темы их надо пересобрать ── */
 function syncThemeBtn() {
   const dark = document.documentElement.dataset.theme !== 'light';
-  document.getElementById('theme-btn').textContent = dark ? '☀ Светлая' : '☾ Тёмная';
+  const btn = document.getElementById('theme-btn');
+  btn.textContent = dark ? '☀' : '☾';
+  btn.title = dark ? 'Светлая тема' : 'Тёмная тема';
 }
 
 function toggleTheme() {

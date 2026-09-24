@@ -14,41 +14,48 @@ async function openDriver(driver, mode) {
   }, state.fresh);
   const rounds = card.rounds;
 
-  const stat = (k, v) => `<div class="modal-stat"><div class="k">${k}</div><div class="v">${v}</div></div>`;
-  const raceStats = [
-    stat('Место · гонки', rs ? `#${rs.rank}` : '—'),
-    stat('Очки · гонки', rs ? rs.total : '—'),
-    stat('К-во гонок', state.attendance.races[driver]?.size || 0),
-    stat('Сред. поз. · гонки', rs ? avgPos(rs) : '—'),
-    stat('Топ-5 / 10 · гонки', rs ? `${rs.top5} / ${rs.top10}` : '—'),
-    // С победами показываем их, без побед «Лучший финиш» информативнее
-    rs && rs.wins > 0
-      ? stat('Победы', rs.wins)
-      : stat('Лучший финиш', rs && rs.best != null ? 'P' + rs.best : '—'),
-  ].join('');
-  const qualStats = [
-    stat('Место · квала', qs ? `#${qs.rank}` : '—'),
-    stat('Очки · квала', qs ? qs.total : '—'),
-    stat('К-во квалификаций', state.attendance.quals[driver]?.size || 0),
-    stat('Сред. поз. · квала', qs ? avgPos(qs) : '—'),
-    stat('Топ-5 / 10 · квала', qs ? `${qs.top5} / ${qs.top10}` : '—'),
-    // Есть поулы — показываем их, иначе информативнее лучший старт
-    qs && qs.wins > 0
-      ? stat('Поулы', qs.wins)
-      : stat('Лучший старт', qs && qs.best != null ? 'P' + qs.best : '—'),
-  ].join('');
+  // main — место и очки: крупнее и акцентом; остальные показатели — мельче
+  const stat = (k, v, { sub = '', subTitle = '', main = false } = {}) => `<div class="modal-stat${main ? ' main' : ''}">
+  <div class="k">${k}</div><div class="v">${v}</div>${sub ? `<div class="sub" title="${subTitle}">${sub}</div>` : ''}</div>`;
+  // гость в списке есть, а места нет: очки у него считаются, но вне основного зачёта
+  const placeStat = s => !s || s.rank == null ? '—' : `#${s.rank}`;
+  // гостевые заявки пилота со своими заявками — очки мимо зачёта, подписываем под очками
+  const guestSub = g => g?.n
+    ? ` <small title="Гостевые заявки: ${g.pts} очк. за ${g.n} эт. — мимо личного зачёта" style="white-space:nowrap">+${g.pts} (i)</small>` : '';
+  // проведено этапов (без дуэлей) — знаменатель для стартов
+  const held = kind => state[kind].rounds.filter(r => !SPRINT_ROUNDS.has(r)).length;
+  // Блок «Гонки» / «Квалификации»: заголовок один, в подписях карточек сессия не повторяется
+  const statBlock = (title, s, kind, g, winLabel, bestLabel) => `<div class="modal-stats-block">
+  <h3 class="modal-stats-title">${title}</h3>
+  <div class="modal-stats">${[
+    // у гостя места нет: прочерк и подпись, а не «вне зачёта» крупным шрифтом
+    stat('Место', placeStat(s), { main: true, ...(s && s.rank == null ? { sub: 'гость', subTitle: 'Очки считаются, но вне основного зачёта' } : {}) }),
+    stat('Очки', (s ? s.total : '—') + guestSub(g), { main: true }),
+    stat('Старты', `${state.attendance[kind][driver]?.size || 0} <small>/ ${held(kind)}</small>`),
+    stat('Сред. поз.', s ? avgPos(s) : '—'),
+    stat('Топ-5 · 10', s ? `${s.top5} · ${s.top10}` : '—'),
+    // с победами (поулами) показываем их, без них информативнее лучший результат
+    s && s.wins > 0 ? stat(winLabel, s.wins) : stat(bestLabel, s && s.best != null ? 'P' + s.best : '—'),
+  ].join('')}</div>
+</div>`;
+  const raceStats = statBlock('Гонки', rs, 'races', card.guest?.races, 'Победы', 'Лучший');
+  const qualStats = statBlock('Квалификации', qs, 'quals', card.guest?.quals, 'Поулы', 'Лучший');
 
   const metricMark = r => r.metric
     ? '<span class="metric-mark" title="Квалификация по метрике: без прогноза, меньше — лучше">(metric)</span> ' : '';
   const place = (pos, dq) => pos ?? (dq ? DQ_MARK : '—');
   const roundLink = r => `<span class="driver-link" title="Открыть результаты этапа" onclick="goToRound(${Math.trunc(r.round)})">${roundFullName(r.round)}</span>`
-    + (r.guest ? ' <span class="guest-mark" title="Гостевая заявка: очки в личный зачёт не идут">(i)</span>' : '');
+    + (r.guest ? ` <span class="guest-mark" title="Гостевая заявка: ${r.counted
+      ? 'очки считаются, но вне основного зачёта' : 'очки в личный зачёт не идут'}">(i)</span>` : '');
+  // очки гостевой заявки, которые мимо личного зачёта, — в скобках и приглушённо
+  const nascarCell = r => r.counted ? r.nascar
+    : `<span class="muted" title="Мимо личного зачёта: гостевая заявка">(${r.nascar})</span>`;
 
   const body = rounds.map(r => qualsOnly ? `<tr>
   <td>${roundLink(r)}</td>
   <td class="r">${place(r.qualPos, r.qualDQ)}</td>
   <td class="r muted">${metricMark(r)}${r.qualPts ?? '—'}</td>
-  <td class="r">${r.nascar}</td>
+  <td class="r">${nascarCell(r)}</td>
 </tr>` : `<tr>
   <td>${roundLink(r)}</td>
   <td class="r">${place(r.qualPos, r.qualDQ)}</td>
@@ -57,19 +64,20 @@ async function openDriver(driver, mode) {
   <td class="r muted">${r.racePts ?? '—'}</td>
   <td class="r">${r.diff == null ? '<span class="muted">—</span>' : r.diff === 0 ? '<span class="muted">0</span>'
     : `<span class="${r.diff > 0 ? 'up' : 'down'}">${r.diff > 0 ? '+' : ''}${r.diff}</span>`}</td>
-  <td class="r">${r.nascar}</td>
+  <td class="r">${nascarCell(r)}</td>
 </tr>`).join('');
 
+  const car = state.carOf?.[driver]?.car;
   document.getElementById('driver-modal-body').innerHTML = `
-<div class="modal-head">
-  <div>
-    <h2>${driver}</h2>
+<div class="modal-head${carHeadCls(car)}"${carHeadStyle(car)}>
+  ${car ? carBadge(car, base.mfr).replace('car-badge', 'car-badge big') : ''}
+  <div class="modal-head-main">
+    <h2>${driver.replace(' (i)', '')}${driver.includes(' (i)') ? ' <span class="guest-mark" title="Гостевой пилот">(i)</span>' : ''}</h2>
     <div class="team-text">${base.team}${coalMark(base.team)} ${mfrBadge(base.mfr)}</div>
   </div>
   <button class="modal-close" onclick="closeDriver()" title="Закрыть (Esc)">×</button>
 </div>
-${qualsOnly ? `<div class="modal-stats">${qualStats}</div>`
-      : `<div class="modal-stats">${raceStats}</div><div class="modal-stats">${qualStats}</div>`}
+${qualsOnly ? qualStats : `<div class="modal-stats-pair">${raceStats}${qualStats}</div>`}
 <div class="chart-card">
   <h3>Место в ${qualsOnly ? 'зачёте квалификаций' : 'личном зачёте'} после этапа</h3>
   <div class="chart-wrap sm"><canvas id="chart-driver-rank"></canvas></div>
@@ -90,10 +98,82 @@ ${rounds.some(r => r.metric)
       ? '<div class="modal-note"><span class="metric-mark">(metric)</span> — квалификация по метрике: прогноза не было, меньше очков лучше</div>'
       : ''}`;
   document.getElementById('driver-modal').classList.add('open');
-  const color = MFR_COLORS[mfrKey(base.mfr)] || GRAY;
+  const color = carLineColor(car) || MFR_COLORS[mfrKey(base.mfr)] || GRAY;
   qualsOnly
     ? drawRankChart(card.history || {}, color, state.quals.rounds.filter(r => r === Math.trunc(r)))
     : drawRankChart(card.history || {}, color);
+}
+
+/* Цвета машины (bg/fg с листа entries) в шапке карточек пилота и машины */
+const carColorsOf = car => (car && state.carColors?.[car]) || null;
+const carHeadCls = car => carColorsOf(car) ? ' car-colors' : '';
+const carHeadStyle = car => {
+  const c = carColorsOf(car);
+  return c ? ` style="background:#${c.bg};color:#${c.fg}"` : '';
+};
+// линия графика — тем из цветов машины (bg или fg), что контрастнее фону страницы в текущей теме
+function carLineColor(car) {
+  const c = carColorsOf(car);
+  if (!c) return null;
+  const lum = h => [0, 2, 4].reduce((s, i) => s + parseInt(h.slice(i, i + 2), 16), 0) / 3;
+  const page = document.documentElement.dataset.theme === 'light' ? 250 : 20;
+  return '#' + (Math.abs(lum(c.bg) - page) >= Math.abs(lum(c.fg) - page) ? c.bg : c.fg);
+}
+
+// Фамилия — последнее слово имени, без гостевой метки
+const surname = d => d.replace(' (i)', '').split(' ').pop();
+
+/* ── Карточка машины (зачёт владельцев): тот же вид, что у пилота ── */
+async function openCar(car) {
+  const card = await rpc('car_card', { season: state.year, division: state.division, car }, state.fresh);
+  const o = card.stats;
+  const stat = (k, v, main = false) => `<div class="modal-stat${main ? ' main' : ''}"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  const stats = o ? [
+    stat('Место', `#${o.rank}`, true),
+    stat('Очки', o.total, true),
+    stat('Старты', `${o.starts} <small>/ ${o.held}</small>`),
+    stat('Сред. поз.', o.avg ?? '—'),
+    stat('Топ-5 · 10', `${o.top5} · ${o.top10}`),
+    o.wins > 0 ? stat('Победы', o.wins) : stat('Лучший', o.best != null ? 'P' + o.best : '—'),
+  ].join('') : '';
+  const place = (pos, dq) => pos ?? (dq ? DQ_MARK : '—');
+  const guestMark = r => r.guest ? ' <span class="guest-mark" title="Гостевая заявка: очки машине идут">(i)</span>' : '';
+  const body = card.rounds.map(r => `<tr>
+  <td><span class="driver-link" title="Открыть результаты этапа" onclick="goToRound(${Math.trunc(r.round)})">${roundFullName(r.round)}</span></td>
+  <td>${driverLink(r.driver)}${guestMark(r)}</td>
+  <td class="r">${place(r.qualPos, r.qualDQ)}</td>
+  <td class="r muted">${r.qualPts ?? '—'}</td>
+  <td class="r">${place(r.racePos, r.raceDQ)}</td>
+  <td class="r muted">${r.racePts ?? '—'}</td>
+  <td class="r">${r.nascar ?? '—'}</td>
+</tr>`).join('');
+
+  document.getElementById('driver-modal-body').innerHTML = `
+<div class="modal-head${carHeadCls(car)}"${carHeadStyle(car)}>
+  ${carBadge(car, o?.mfr).replace('car-badge', 'car-badge big')}
+  <div class="modal-head-main">
+    <h2>Машина #${car}</h2>
+    <div class="team-text">${o ? `${teamLink(o.team)}${coalMark(o.team)} ${mfrBadge(o.mfr)}` : ''}</div>
+    <div class="team-text">${o ? o.drivers.slice().sort().map(driverLink).join(' · ') : ''}</div>
+  </div>
+  <button class="modal-close" onclick="closeDriver()" title="Закрыть (Esc)">×</button>
+</div>
+${o ? `<div class="modal-stats-block"><h3 class="modal-stats-title">Зачёт владельцев</h3><div class="modal-stats">${stats}</div></div>` : ''}
+<div class="chart-card">
+  <h3>Место в зачёте владельцев после этапа</h3>
+  <div class="chart-wrap sm"><canvas id="chart-driver-rank"></canvas></div>
+</div>
+<div class="table-scroll"><table class="standings-table" data-sort="auto">
+  <thead><tr>
+    <th>Этап</th><th>Пилот</th>
+    <th class="r">Квала</th><th class="r" title="Очки за прогноз в квалификации">Очки кв.</th>
+    <th class="r">Гонка</th><th class="r" title="Очки за прогноз в гонке">Очки гн.</th>
+    <th class="r" title="Очки машине в зачёт владельцев (дуэли — в итоге, не в строке этапа)">NASCAR</th>
+  </tr></thead>
+  <tbody>${body || '<tr><td colspan="7" class="muted">Нет данных</td></tr>'}</tbody>
+</table></div>`;
+  document.getElementById('driver-modal').classList.add('open');
+  drawRankChart(card.history || {}, carLineColor(car) || MFR_COLORS[mfrKey(o?.mfr)] || GRAY);
 }
 
 // Ссылка на карточку команды — из любой таблицы
@@ -139,7 +219,7 @@ async function openTeam(team) {
     return `<tr>
       <td><span class="driver-link" title="Открыть результаты этапа" onclick="goToRound(${r})">${roundFullName(r)}</span></td>
       <td>${cells}</td>
-      <td class="team-text">${bestOfRound.map(x => driverLink(x.driver)).join(' · ') || '—'}</td>
+      <td class="team-text">${bestOfRound.map(x => driverLink(x.driver, null, surname(x.driver))).join(' · ') || '—'}</td>
       <td class="r">${got || '—'}</td>
       <td class="r">${rr == null ? '—' : `<span class="pos-badge">${rr}</span>`}</td>
       <td class="r"><strong>${cum}</strong></td>

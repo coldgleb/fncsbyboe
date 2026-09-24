@@ -60,28 +60,28 @@ function divisionRows(results, year, division) {
 /* Лист заявок в том виде, который читает computeEntries: первая строка — номера этапов,
    дальше по строке на «команда + машина» с отметкой на заявленных этапах.
 
-   В новой таблице строка заявки — это season, div, team, num, признак фулл-тайма, man,
-   затем период, на который машина числится за командой (от/до), период заявления
-   фулл-тайма (от/до, у парт-тайма пусто), число фактически поданных прогнозов и, наконец,
-   признаки факта по каждому этапу 0–35. Метрике нужен именно ПЛАН — этапы заявления;
-   факт она считает сама по листу квалификаций. Поэтому отмечаем период заявления,
-   а парт-тайм машины (периода нет) в фулл-тайм не попадают. */
+   В новой таблице строка заявки — это year, div, team, num, fulltime, цвета номера bg/fg,
+   man, период, на который машина числится за командой (from/to), период заявления
+   фулл-тайма (ft_from/ft_to, у парт-тайма пусто), число поданных прогнозов (count) и
+   признаки факта по этапам. Колонки читаем по именам — их порядок в листе меняется.
+   Метрике нужен именно ПЛАН — этапы заявления; факт она считает сама по листу
+   квалификаций. Поэтому отмечаем период заявления, а парт-тайм машины (периода нет)
+   в фулл-тайм не попадают. */
+const entriesOf = (entryRows, year, division) =>
+  entryRows.filter(r => r.year === year && r.div === DIV_CODE[division]);
+
 function entriesMatrix(entryRows, year, division) {
-  const code = DIV_CODE[division];
-  const at = (r, i) => Object.values(r)[i];
-  const mine = entryRows.filter(r => at(r, 0) === year && at(r, 1) === code);
+  const mine = entriesOf(entryRows, year, division);
   if (!mine.length) return [];
 
-  const declared = r => {
-    const start = at(r, 8), end = at(r, 9);
-    return at(r, 4) === true && start != null && end != null ? [Number(start), Number(end)] : null;
-  };
+  const declared = r => r.fulltime === true && r.ft_from != null && r.ft_to != null
+    ? [Number(r.ft_from), Number(r.ft_to)] : null;
   const last = Math.max(...mine.map(r => declared(r)?.[1] ?? 0));
   const head = { Team: null, Car: null };
   for (let rnd = 0; rnd <= last; rnd++) head['R' + rnd] = rnd;
 
   return [head, ...mine.map(r => {
-    const row = { Team: at(r, 2), Car: String(at(r, 3) ?? '') };
+    const row = { Team: r.team, Car: String(r.num ?? '') };
     const range = declared(r);
     if (range) for (let rnd = range[0]; rnd <= Math.min(range[1], last); rnd++) row['R' + rnd] = 1;
     return row;
@@ -131,6 +131,10 @@ async function buildSeason(year, division, fresh) {
   const { races: racesRows, quals: qualsRows } = divisionRows(results, year, division);
 
   st.entries = L.computeEntries(entriesMatrix(entryRows, year, division));
+  // цвета номера машины (bg/fg — hex без #); номер в сезоне и дивизионе однозначен
+  st.carColors = Object.fromEntries(entriesOf(entryRows, year, division)
+    .filter(r => r.num != null && r.bg && r.fg)
+    .map(r => [String(r.num), { bg: r.bg, fg: r.fg }]));
   st.coalitions = new Set(coalitions
     .filter(r => (r.season ?? r.Year ?? year) === year && (!r.div || r.div === DIV_CODE[division]))
     .map(r => r.team || r.Team || Object.values(r).filter(v => typeof v === 'string').pop())
@@ -283,8 +287,8 @@ function sliceOf(s, session, upto, chase = 'auto') {
      - в Чейзе (очки уже сброшены на сетку): в топ-16 — отрыв от лидера Чейза,
        ниже границы — отставание от того, кто идёт 17-м; считается всем подряд,
        включая гостей и не прошедших ценз (им тоже видно, сколько до Чейза);
-     - в регулярном сезоне как раньше: в топ-16 — запас над первым вне Чейза,
-       ниже — отставание от последнего в Чейзе, и только для тех, кто в зачёте. */
+     - в регулярном сезоне: в топ-16 — запас над первым вне Чейза, ниже — отставание
+       от последнего в Чейзе (гостям и стоящим внутри зоны Чейза без ценза — нет). */
   const playoffSet = L.buildPlayoffSet(all, at);
   const real = chase === 'chase' || (chase !== 'regular' && at > L.CHASE_START);
   const inChase = all.filter(x => playoffSet.has(x.driver));
@@ -295,10 +299,20 @@ function sliceOf(s, session, upto, chase = 'auto') {
   const firstOut = all.find(x => !x.isGuest && !playoffSet.has(x.driver) && L.qualEligible(x.driver, at));
   const lastIn = inChase[inChase.length - 1], leader = inChase[0];
 
-  const standings = all.map(x => {
+  /* Регулярный сезон на срезе с 26 этапа: граница Чейза уже не нужна — без подсветки
+     и отсечки, «±» считается от лидера зачёта */
+  if (!real && at >= L.CHASE_START) {
+    const top = all.find(x => x.rank != null);
+    const standings = all.map(x => ({ ...x, playoff: false, cutoff: false, gap: top ? x.total - top.total : null }));
+    return { at, rounds, standings, prevRank };
+  }
+
+  const standings = all.map((x, i) => {
     const playoff = playoffSet.has(x.driver);
     const ref = real ? (playoff ? leader : afterChase) : (playoff ? firstOut : lastIn);
-    const skip = !real && (x.isGuest || !L.qualEligible(x.driver, at));
+    /* в регулярном сезоне: гостю «±» не считается; не прошедшему ценз — только если он
+       ниже всех чейзовых (стоит выше хоть одного из них — отставания нет, есть место) */
+    const skip = !real && (x.isGuest || (!L.qualEligible(x.driver, at) && i < lastChaseIdx));
     const gap = skip || !ref ? null : x.total - ref.total;
     return { ...x, playoff, cutoff: afterChase != null && afterChase.driver === x.driver, gap };
   });
@@ -379,7 +393,7 @@ function roundProtocol(s, round, view) {
       'QL': r['QL'] ?? null, 'DR1': r['DR1'] ?? null, 'DR2': r['DR2'] ?? null, 'DR3': r['DR3'] ?? null,
       'DR4': r['DR4'] ?? null, 'CAU': r['CAU'] ?? null, 'RET': r['RET'] ?? null, 'MN': r['MN'] ?? null,
       'DUE': r['DUE'] ?? null, 'Points': r['Points'] ?? null,
-      nascar: L.scorePts(r['Pos.'], roundNum), made, delta, hl,
+      nascar: L.scorePts(r['Pos.'], roundNum), made, delta, hl, guest: !!r.guest,
     };
   });
   return { metric, rows: out };
@@ -481,10 +495,12 @@ function driverCard(s, driver, mode) {
     const rr = raceRow[r], qr = qualRow[r];
     const racePos = rr ? rr['Pos.'] ?? null : null;
     const qualPos = qr ? qr['Pos.'] ?? null : null;
+    const guest = !!(qualsOnly ? qr?.guest : (rr?.guest ?? qr?.guest));
     return {
       round: r,
-      // гостевая заявка: результат есть, а очков в личный зачёт этап не даёт
-      guest: !!(qualsOnly ? qr?.guest : (rr?.guest ?? qr?.guest)),
+      // гостевая заявка: у пилота со своими заявками очки этапа мимо личного зачёта,
+      // у гостя они считаются (он весь вне основного зачёта)
+      guest, counted: !guest || L.isGuestDriver(driver),
       qualPos, qualDQ: !!qr && qualPos == null, qualPts: qr ? qr['Points'] ?? null : null,
       racePos, raceDQ: !!rr && racePos == null, racePts: rr ? rr['Points'] ?? null : null,
       diff: racePos != null && qualPos != null ? qualPos - racePos : null,
@@ -493,9 +509,141 @@ function driverCard(s, driver, mode) {
     };
   });
 
+  /* Очки гостевых заявок, которые мимо личного зачёта (у пилота есть и свои заявки):
+     в карточке они подписываются под очками, чтобы «0 очков при 8 гонках» не выглядело ошибкой */
+  const guestPts = rows => {
+    if (L.isGuestDriver(driver)) return { pts: 0, n: 0 };
+    const mine = rows.filter(r => r['Driver'] === driver && r.guest && r['Round'] !== 0
+      && !L.SPRINT_ROUNDS.has(r['Round']));
+    return { pts: mine.reduce((sum, r) => sum + L.scorePts(r['Pos.'], r['Round']), 0), n: mine.length };
+  };
+
   withCharts(s);
   const history = (qualsOnly ? st.qualRankHistory : st.rankHistory)[driver] || {};
-  return { rounds: cells, history };
+  return { rounds: cells, history, guest: { races: guestPts(st.races.rows), quals: guestPts(st.quals.rows) } };
+}
+
+/* Карточка машины (зачёт владельцев, п. 9.6): кто и как выступал под номером по этапам,
+   итог и место машины, история места после каждого этапа. Гость очки машине приносит. */
+function carCard(s, car) {
+  const { L, st } = s;
+  const mine = rows => rows.filter(r => String(r['#']) === String(car) && !L.SPRINT_ROUNDS.has(r['Round']));
+  const race = mine(st.races.rows), qual = mine(st.quals.rows);
+  const rounds = [...new Set([...race, ...qual].map(r => r['Round']))].sort((a, b) => a - b);
+  const cells = rounds.map(n => {
+    const rr = race.find(r => r['Round'] === n), qr = qual.find(r => r['Round'] === n);
+    const racePos = rr ? rr['Pos.'] ?? null : null;
+    return {
+      round: n, driver: (rr || qr)['Driver'], guest: !!(rr || qr).guest,
+      qualPos: qr ? qr['Pos.'] ?? null : null, qualDQ: !!qr && qr['Pos.'] == null,
+      qualPts: qr ? qr['Points'] ?? null : null,
+      racePos, raceDQ: !!rr && racePos == null, racePts: rr ? rr['Points'] ?? null : null,
+      nascar: rr ? L.scorePts(racePos, n) : null,
+    };
+  });
+
+  const held = st.races.rounds.filter(r => !L.SPRINT_ROUNDS.has(r));
+  const last = held[held.length - 1];
+  const o = last == null ? null : ownersUpTo(s, last, 'auto').find(x => String(x.car) === String(car)) || null;
+  const pos = o ? o.positions : [];
+  const stats = o && {
+    rank: o.rank, total: o.total, wins: o.wins, best: o.best === Infinity ? null : o.best,
+    team: o.team, mfr: o.mfr, drivers: o.drivers,
+    starts: race.filter(r => r['Round'] !== 0).length, held: held.filter(r => r !== 0).length,
+    avg: pos.length ? (pos.reduce((a, b) => a + b, 0) / pos.length).toFixed(1) : null,
+    top5: pos.filter(p => p <= 5).length, top10: pos.filter(p => p <= 10).length,
+  };
+  const history = {};
+  for (const r of held) {
+    const x = ownersUpTo(s, r, 'auto').find(y => String(y.car) === String(car));
+    if (x) history[r] = x.rank;
+  }
+  return { stats, rounds: cells, history };
+}
+
+/* ── Head-to-head: два пилота или две команды ──
+   Счёт «кто выше» — только по этапам, где место есть у обоих (DQ и пропуски не в счёт).
+   Дуэли и этап 0 (The Clash) не учитываются, как и в остальной статистике. */
+function h2hDrivers(s, a, b) {
+  const { L, st } = s;
+  withCharts(s);
+  // лучшее место пилота на этапе, очки за прогноз (Points) и зачётные NASCAR, гостевая заявка
+  const byRound = (rows, d) => {
+    const m = {};
+    for (const r of rows) {
+      const rnd = r['Round'];
+      if (r['Driver'] !== d || rnd == null || rnd === 0 || L.SPRINT_ROUNDS.has(rnd)) continue;
+      const cur = m[rnd], pos = r['Pos.'] ?? null;
+      if (!cur || (pos != null && (cur.pos == null || pos < cur.pos)))
+        m[rnd] = { pos, guest: !!r.guest, pts: r['Points'] ?? null, nascar: L.scorePts(pos, rnd) };
+    }
+    return m;
+  };
+  const ra = byRound(st.races.rows, a), rb = byRound(st.races.rows, b);
+  const qa = byRound(st.quals.rows, a), qb = byRound(st.quals.rows, b);
+  const score = (x, y) => {
+    const out = { a: 0, b: 0 };
+    for (const r in x) {
+      const pa = x[r]?.pos, pb = y[r]?.pos;
+      if (pa == null || pb == null || pa === pb) continue;
+      pa < pb ? out.a++ : out.b++;
+    }
+    return out;
+  };
+  const rounds = [...new Set([ra, rb, qa, qb].flatMap(m => Object.keys(m)).map(Number))].sort((x, y) => x - y);
+  return {
+    races: score(ra, rb), quals: score(qa, qb),
+    // квалы по метрике: прогнозные очки там «меньше — лучше»
+    metric: [...st.metricQuals],
+    rounds: rounds.map(r => ({
+      round: r,
+      a: { qual: qa[r] ?? null, race: ra[r] ?? null },
+      b: { qual: qb[r] ?? null, race: rb[r] ?? null },
+    })),
+    history: { a: st.rankHistory[a] || {}, b: st.rankHistory[b] || {} },
+  };
+}
+
+/* Команды: гонки — командный зачёт (два лучших результата за этап), квалификации — тот же
+   расчёт на протоколах квал (только для сравнения здесь, официального зачёта у квал нет) */
+function h2hTeams(s, a, b) {
+  const { L, st } = s;
+  withTeams(s);
+  withCharts(s);
+  const rounds = st.races.rounds.filter(r => r !== 0 && !L.SPRINT_ROUNDS.has(r));
+  const session = list => {
+    const ta = list.find(t => t.team === a), tb = list.find(t => t.team === b);
+    const side = t => r => ({
+      pts: t?.roundPts[r] || 0,
+      pos: (t?.roundBest[r] || []).filter(x => x.pos != null).map(x => x.pos),
+    });
+    const sa = side(ta), sb = side(tb);
+    // этап в счёт, только если зачётный результат был у обеих команд
+    const score = { a: 0, b: 0 };
+    for (const r of rounds) {
+      const x = sa(r), y = sb(r);
+      if (!x.pos.length || !y.pos.length || x.pts === y.pts) continue;
+      x.pts > y.pts ? score.a++ : score.b++;
+    }
+    const stats = t => t && {
+      rank: t.rank, total: t.total, drivers: t.drivers.length,
+      wins: t.bestPositions.filter(p => p === 1).length, best: t.bestPositions[0] ?? null,
+      scored: rounds.filter(r => (t.roundBest[r] || []).some(x => x.pos != null)).length,
+    };
+    return { score, stats: { a: stats(ta), b: stats(tb) }, byRound: Object.fromEntries(rounds.map(r => [r, { a: sa(r), b: sb(r) }])) };
+  };
+  const races = session(st.teamPivot);
+  // штрафы (Deductions) снимаются с командного зачёта гонок — к сравнению квал они не относятся
+  const ded = st.deductions;
+  st.deductions = {};
+  let qualTeams;
+  try { qualTeams = L.computeTeamStandings(st.quals.rows, true); } finally { st.deductions = ded; }
+  const quals = session(qualTeams);
+  return {
+    races, quals,
+    rounds: rounds.map(r => ({ round: r, qual: quals.byRound[r], race: races.byRound[r] })),
+    history: { a: st.teamRankHistory[a] || {}, b: st.teamRankHistory[b] || {} },
+  };
 }
 
 function teamCard(s, team) {
@@ -538,7 +686,7 @@ function seasonSummary(s) {
   const mapOfSets = m => Object.fromEntries(Object.entries(m || {}).map(([k, v]) => [k, [...v]]));
   const drivers = new Set([...st.races.rows, ...st.quals.rows].map(r => r['Driver']).filter(Boolean));
   const teams = new Set(st.races.rows.map(r => r['Team']).filter(Boolean));
-  const [leader, second] = st.races.standings;
+  const [leader, second] = st.races.standings.filter(s => s.rank != null);   // гости вне зачёта
   // этапы, по которым есть протокол: этап 0 (The Clash) тоже, дуэли выбираются внутри первого
   const protocolRounds = [...new Set([...L.uniqueRounds(st.races.rows), ...L.uniqueRounds(st.quals.rows)])]
     .filter(n => !L.SPRINT_ROUNDS.has(n)).sort((a, b) => a - b);
@@ -560,7 +708,7 @@ function seasonSummary(s) {
     metricQuals: setArr(st.metricQuals),
     coalitions: setArr(st.coalitions),
     guestByChange: setArr(st.guestByChange),
-    deductions: st.deductions, teamOf: st.teamOf, carOf: st.carOf, roundMaxPos: st.roundMaxPos,
+    deductions: st.deductions, teamOf: st.teamOf, carOf: st.carOf, carColors: st.carColors, roundMaxPos: st.roundMaxPos,
     attendance: { races: mapOfSets(st.attendance.races), quals: mapOfSets(st.attendance.quals) },
     qualsParticipation: mapOfSets(st.qualsParticipation),
   };
@@ -609,6 +757,8 @@ const LOCAL_API = {
   round_metric: (s, p) => roundMetric(s, p.round),
   driver_card: (s, p) => driverCard(s, p.driver, p.mode),
   team_card: (s, p) => teamCard(s, p.team),
+  car_card: (s, p) => carCard(s, p.car),
+  h2h: (s, p) => p.mode === 'teams' ? h2hTeams(s, p.a, p.b) : h2hDrivers(s, p.a, p.b),
 };
 
 /* Вызов «функции данных»: имя и параметры те же, что у прежних функций базы.

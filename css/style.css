@@ -321,6 +321,14 @@ main {
   white-space: nowrap;
 }
 
+/* Кнопки-иконки в панели (тема, обновить): квадратные, без подписи */
+.icon-btn {
+  width: 30px;
+  padding: 5px 0;
+  font-size: 15px;
+  line-height: 1;
+}
+
 .page-btn:hover {
   border-color: var(--muted);
 }
@@ -484,6 +492,22 @@ main {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+/* Тумблер-галочка в шапке таблицы («Скрыть подробные результаты») */
+.switch-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text2);
+  cursor: pointer;
+  user-select: none;
+}
+
+.switch-label input {
+  accent-color: var(--accent);
+  margin: 0;
 }
 
 .table-header .table-upto {
@@ -955,6 +979,97 @@ table[data-sort="auto"] th:hover {
 }
 
 /* ── Строка выбора этапа / вида ── */
+/* Справка калькулятора (кнопка «?»): текст из calc-help.html */
+.calc-help {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  color: var(--text2);
+  font-size: 13px;
+}
+
+.calc-help h4 {
+  font: 700 15px var(--display);
+  text-transform: uppercase;
+  color: var(--text);
+  margin: 4px 0 8px;
+}
+
+.calc-help ol,
+.calc-help ul {
+  padding-left: 20px;
+  margin-bottom: 10px;
+}
+
+.calc-help li {
+  margin-bottom: 4px;
+}
+
+/* Таблицы очков в справке: каждая — отдельная карточка с заголовком, карточки плиткой */
+.calc-help .help-tables {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+  /* все карточки одной высоты — и в ряду, и между рядами */
+  grid-auto-rows: 1fr;
+  align-items: stretch;
+}
+
+.calc-help .help-card {
+  background: var(--surface2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.calc-help .help-card h5 {
+  margin: 0;
+  padding: 8px 12px;
+  font: 700 13px var(--display);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: var(--text);
+  border-bottom: 1px solid var(--line);
+}
+
+.calc-help table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.calc-help th,
+.calc-help td {
+  padding: 5px 12px;
+  text-align: left;
+}
+
+/* очки — правая колонка, выровнены вправо и выделены */
+.calc-help th:last-child,
+.calc-help td:last-child {
+  text-align: right;
+}
+
+.calc-help td:last-child {
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.calc-help th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.calc-help tr + tr td {
+  border-top: 1px solid var(--row-line);
+}
+
 .round-bar {
   display: flex;
   align-items: center;
@@ -1180,6 +1295,41 @@ table[data-sort="auto"] th:hover {
   margin-bottom: 14px;
 }
 
+.modal-head-main {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Шапка карточки в цветах машины (bg/fg с листа entries): текст наследует fg */
+.modal-head.car-colors {
+  padding: 14px 16px;
+  border-radius: 10px;
+}
+
+.modal-head.car-colors .team-text,
+.modal-head.car-colors .driver-link,
+.modal-head.car-colors .guest-mark,
+.modal-head.car-colors .modal-close {
+  color: inherit;
+}
+
+.modal-head.car-colors .modal-close {
+  background: transparent;
+  border-color: currentColor;
+}
+
+/* Крупный номер в шапке карточки */
+.car-badge.big {
+  min-width: 52px;
+  padding: 4px 10px;
+  font-size: 28px;
+  border-radius: 8px;
+}
+
+.car-link {
+  cursor: pointer;
+}
+
 .modal-head h2 {
   font-size: 30px;
   font-weight: 800;
@@ -1212,11 +1362,69 @@ table[data-sort="auto"] th:hover {
   margin: 16px 0 8px;
 }
 
+/* Карточка пилота: блоки «Гонки» / «Квалификации», в каждом шесть показателей 3 × 2 */
+.modal-stats-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
 .modal-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: 10px;
   margin-bottom: 16px;
+}
+
+.modal-stats-block .modal-stats {
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+/* Гонки и квалификации рядом; на узком экране — друг под другом */
+.modal-stats-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 640px) {
+  .modal-stats-pair {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .modal-stats-block .modal-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* второстепенные показатели мельче, место и очки — крупно и акцентом */
+.modal-stats-block .modal-stat {
+  padding: 8px 10px;
+}
+
+.modal-stats-block .modal-stat .v {
+  font-size: 20px;
+}
+
+.modal-stats-block .modal-stat.main .v {
+  font-size: 28px;
+  color: var(--accent);
+}
+
+.modal-stat .v small {
+  font-size: .6em;
+  color: var(--muted);
+}
+
+.modal-stat .sub {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .modal-stat {
@@ -1259,6 +1467,9 @@ table[data-sort="auto"] th:hover {
 }
 
 #calc-root .hd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-bottom: 16px;
 }
 
@@ -1276,6 +1487,7 @@ table[data-sort="auto"] th:hover {
   text-transform: uppercase;
   padding: 4px 0;
   width: 100%;
+  max-width: 420px;
   outline: none;
 }
 
@@ -1936,5 +2148,115 @@ table[data-sort="auto"] th:hover {
 
   .modal-head h2 {
     font-size: 24px;
+  }
+}
+
+/* ── Вкладка H2H ── */
+.h2h-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.h2h-side {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  min-width: 0;
+}
+
+.h2h-side.right {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+
+.h2h-side h2 {
+  font-size: 22px;
+  text-transform: uppercase;
+  line-height: 1.1;
+}
+
+.h2h-side.car-colors {
+  border-color: transparent;
+}
+
+.h2h-side.car-colors .team-text,
+.h2h-side.car-colors .driver-link {
+  color: inherit;
+}
+
+/* Блоки «Квалификации» и «Гонки» рядом; на узком экране друг под другом */
+.h2h-blocks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 24px;
+  margin-bottom: 16px;
+}
+
+.h2h-block .modal-stats-title {
+  text-align: center;
+}
+
+.h2h-score {
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+/* Таблица по этапам: пары A | B, первая ячейка пары с разделителем */
+.h2h-rounds .pair-start {
+  border-left: 1px solid var(--line);
+}
+
+.h2h-rounds .grp-row th {
+  text-align: center;
+}
+
+.h2h-score .k {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.h2h-score .v {
+  font: 800 34px/1.1 var(--display);
+}
+
+.h2h-win {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.h2h-stats {
+  width: 100%;
+  margin: 0 auto;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.h2h-stats td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--row-line);
+  width: 35%;
+}
+
+.h2h-stats td.h2h-label {
+  width: 30%;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .h2h-head,
+  .h2h-blocks {
+    grid-template-columns: 1fr;
+  }
+
+  .h2h-side.right {
+    flex-direction: row;
+    text-align: left;
   }
 }

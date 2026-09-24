@@ -258,10 +258,14 @@ function computeStandings(rows) {
       posSum: 0, finishes: 0, top5: 0, top10: 0, positions: []
     };
     const s = map[d];
-    // гостевая заявка пилота с командой очков ему не даёт (п. 9.6: их получает машина)
-    const pts = r.guest ? 0 : scorePts(r['Pos.'], r['Round']);
+    // гостевая заявка пилота, у которого есть свои, очков ему не даёт (п. 9.6: их получает машина);
+    // гость (только гостевые заявки или сменил дивизион) очки копит как боевой — но вне зачёта
+    const counted = !r.guest || s.isGuest;
+    const pts = counted ? scorePts(r['Pos.'], r['Round']) : 0;
     s.total += pts;
-    if (r['Round'] !== 0 && !r.guest) s.sheetPts += r['Points'] || 0;
+    if (r['Round'] !== 0 && counted) s.sheetPts += r['Points'] || 0;
+    // дуэль — не гонка: пилот без единой гонки в зачёт не попадает
+    if (!SPRINT_ROUNDS.has(r['Round'])) s.raced = true;
     const pos = r['Pos.'];
     // Дуэль приносит очки, но гоночным результатом не считается: ни победа, ни место, ни статистика.
     // Этап 0 (The Clash) не в счёт вообще нигде.
@@ -283,7 +287,7 @@ function computeStandings(rows) {
     if (rnd != null) s.roundPts[rnd] = (s.roundPts[rnd] || 0) + pts;
   }
 
-  return renumber(Object.values(map).sort(standingsCmp)
+  return renumber(Object.values(map).filter(s => s.raced).sort(standingsCmp)
     .map(s => ({
       ...s,
       bestPositions: [...s.positions].sort((a, b) => a - b),

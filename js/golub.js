@@ -23,7 +23,7 @@ ${rounds.map(r => `<th title="${roundFullName(r)} · ${GOLUB} P${info[r].gp} и�
 <th>Итого</th>
   </tr></thead><tbody>`;
 
-  for (const g of list) {
+  for (const g of spoilerRows(`golub-${type}`, list, state.golubFilter[type])) {
     html += `<tr class="${g.rank <= 3 ? 'rank-' + g.rank : ''}">
   <td class="driver-cell"><span class="pos-badge">${g.rank}</span> ${driverLink(g.driver, type === 'quals' ? 'quals' : null)}${coalMark(g.team)}
   <div class="team-drivers">${teamLink(g.team)}</div></td>`;
@@ -35,7 +35,7 @@ ${rounds.map(r => `<th title="${roundFullName(r)} · ${GOLUB} P${info[r].gp} и�
     }
     html += `<td class="total-cell">${g.total}</td></tr>`;
   }
-  document.getElementById(`golub-${type}`).innerHTML = html + '</tbody></table>';
+  document.getElementById(`golub-${type}`).innerHTML = html + '</tbody></table>' + spoilerHtml(`golub-${type}`, list.length);
 }
 
 function setGolubView(type) {

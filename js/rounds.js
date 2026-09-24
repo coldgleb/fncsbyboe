@@ -149,7 +149,7 @@ async function renderRoundMetric(roundNum) {
   const body = full.map((m, i) => [i + 1, m]).filter(([, m]) => roundHit(m.driver, m.team, m.car))
     .map(([place, m]) => `<tr class="${place <= 3 ? 'rank-' + place : ''}">
   <td class="r"><span class="pos-badge">${place}</span></td>
-  <td><strong class="driver-link" onclick="openDriver('${jsArg(m.driver)}')">${m.driver}</strong></td>
+  <td><strong>${driverLink(m.driver)}</strong></td>
   <td class="team-text">${teamLink(m.team)}${coalMark(m.team)}</td>
   <td>${carBadge(m.car, state.carOf?.[m.driver]?.mfr)}${m.carNote ? ` <span class="hl coal-mark" title="${escAttr(noteText(m))}">*</span>` : ''}</td>
   <td class="r">${m.pos ?? `<span class="muted" title="Не прошёл квалификацию или не подавал прогноз — место ${m.place}">${m.place}</span>`}</td>
@@ -276,7 +276,9 @@ async function onRoundChange() {
   const drCols = ['DR1', 'DR2', 'DR3', 'DR4'].map(k => ({ key: k, label: k, cls: 'r', fmt: v => v ?? '—', hl: true }));
   const baseCols = [
     { key: '#', label: '#', cls: 'r', fmt: (v, r) => carBadge(v, r['M.']) },
-    { key: 'Driver', label: 'Пилот', fmt: v => `<strong>${driverLink(v)}</strong>` },
+    // гостевая заявка пилота, у которого есть и свои, — «(i)» в имени у него нет, ставим метку
+    { key: 'Driver', label: 'Пилот', fmt: (v, r) => `<strong>${driverLink(v)}</strong>`
+      + (r.guest && !v.includes('(i)') ? ' <span class="guest-mark" title="Гостевая заявка">(i)</span>' : '') },
     { key: 'Team', label: 'Команда', fmt: v => `<span class="team-text">${teamLink(v)}${coalMark(v)}</span>` },
     { key: 'M.', label: 'Авт.', fmt: v => mfrBadge(v) },
   ];
