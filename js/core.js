@@ -2,7 +2,7 @@
 
 // Каждый сезон лежит на своей таблице Google Sheets — новый год дописывается сюда
 const SHEETS_BY_YEAR = {
-  2026: '1677JnB2uVlF0AQcS3x4m45ewpKyzJkRBmwCD7EfJBBg',
+  2026: '1GgX1hcmKSWjzhryDz-M0y_wgknu6VSGvz-jLU25bKlY',
 };
 const SEASONS = Object.keys(SHEETS_BY_YEAR).map(Number);
 const COLORS = [
@@ -22,9 +22,12 @@ const avgPos = s => (s.finishes ? (s.posSum / s.finishes).toFixed(1) : '—');
 
 /* Дивизионы. Star лежит на своих листах; коалиций и зачёта им. Голубочкина в нём нет,
    а лист Round общий — календарь этапов один на оба дивизиона. */
+/* Дивизионы. Данные лежат в одной таблице (лист results), поэтому здесь только то, что
+   отличается на экране: подпись, наличие заявок (метрика команд) и зачёта им. Голубочкина.
+   Имена «Open Races» и т. п. остались для калькулятора — он просит протоколы по прежним именам. */
 const DIVISIONS = {
-  open: { label: 'Open', races: 'Open Races', quals: 'Open Quals', coalitions: 'Open Coalition Teams', entries: 'Open Entries', golub: true },
-  star: { label: 'Star', races: 'Star Races', quals: 'Star Quals', golub: false },
+  open: { label: 'Open', races: 'Open Races', quals: 'Open Quals', entries: true, golub: true },
+  star: { label: 'Star', races: 'Star Races', quals: 'Star Quals', entries: true, golub: false },
 };
 
 const YEARS = [...SEASONS].sort((a, b) => b - a);
@@ -80,7 +83,7 @@ function toNum(v) {
    Данные за день меняются считанные разы: держим разобранные строки в localStorage
    12 часов. Принудительно свежие — кнопка «Обновить» в шапке (init(true)); обычная
    перезагрузка страницы берёт кэш. Версию поднимаем, когда меняется формат данных. */
-const CACHE_V = 4;
+const CACHE_V = 5;   // формат данных сменился — прежний кэш не годится
 const CACHE_TTL = 12 * 3600 * 1000;
 const cacheKey = name => `fncs:${CACHE_V}:${state.year}:${name}`;
 
@@ -122,9 +125,12 @@ function cacheClear() {
    «Обновить» идёт мимо кэша. Готовые таблицы (зачёты, сводные, метрика) собирает
    js/local-api.js тем же расчётом, что проверен тестами. */
 
+// имя колбэка должно быть уникальным: один и тот же лист могут спросить два места сразу
+let jsonpSeq = 0;
+
 function loadSheet(name) {
   return new Promise((resolve, reject) => {
-    const cb = `_gviz_${name.replace(/\W/g, '')}_${Date.now()}`;
+    const cb = `_gviz_${name.replace(/\W/g, '')}_${++jsonpSeq}`;
     const script = document.createElement('script');
     script.src = `https://docs.google.com/spreadsheets/d/${SHEETS_BY_YEAR[state.year]}/gviz/tq`
       + `?tqx=responseHandler:${cb}&sheet=${encodeURIComponent(name)}`;

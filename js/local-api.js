@@ -10,29 +10,94 @@
 
 const DR_KEYS_LOCAL = ['DR1', 'DR2', 'DR3', 'DR4'];
 
-/* Гостевые заявки пилота, который выступает и за команду: в листах это две записи —
-   «Имя» и «Имя (i)». Человек один, поэтому имя гостевой строки приводим к обычному, а саму
-   строку помечаем (r.guest) — очков она ему и его команде не приносит (их получает машина,
-   п. 9.6), но результат остаётся в статистике и в сводных. Метка «(i)» сохраняется только
-   у тех, кто в дивизионе выступал одними гостевыми заявками. */
-function mergeGuestEntries(...rowSets) {
-  const rows = rowSets.flat();
-  const own = new Set(), guest = new Set();
-  for (const r of rows) {
-    const d = r['Driver'];
-    if (!d) continue;
-    (d.endsWith(' (i)') ? guest : own).add(d.endsWith(' (i)') ? d.slice(0, -4) : d);
+/* ── Строки протокола из листа results ──
+
+   В таблице один лист результатов на оба дивизиона и все сессии:
+     season, div (O/S), rnd, sess (R — гонка, Q — квала, D1/D2 — дуэли), pos, car, name,
+     guest, ql, dr1–dr4, cau, ret, mn, due, points, team, man (C/T/F).
+   Правила и таблицы сайта ждут прежние имена колонок, поэтому строку переводим здесь:
+   дуэли становятся этапами 1.1 и 1.2, код производителя — его названием, а гостевая
+   заявка помечается (r.guest) — очков пилоту она не даёт, но остаётся в статистике.
+   Метку «(i)» к имени добавляем только тем, у кого в дивизионе нет ни одной своей заявки. */
+const MFR_BY_CODE = { C: 'Chevrolet', T: 'Toyota', F: 'Ford' };
+const DIV_CODE = { open: 'O', star: 'S' };
+const SESS_ROUND = { D1: 1.1, D2: 1.2 };
+
+function protocolRow(r, guestOnly) {
+  const num = v => (v == null || v === '' ? null : toNum(v));
+  return {
+    'Round': SESS_ROUND[r.sess] ?? num(r.rnd),
+    'Pos.': num(r.pos),
+    '#': r.car == null || r.car === '' ? null : String(r.car),
+    'Driver': r.name + (guestOnly.has(r.name) ? ' (i)' : ''),
+    'Team': r.team || '—',
+    'M.': MFR_BY_CODE[r.man] || r.man || '',
+    'QL': num(r.ql), 'DR1': num(r.dr1), 'DR2': num(r.dr2), 'DR3': num(r.dr3), 'DR4': num(r.dr4),
+    'CAU': num(r.cau), 'RET': num(r.ret), 'MN': num(r.mn), 'DUE': num(r.due), 'Points': num(r.points),
+    guest: !!r.guest,
+  };
+}
+
+// В листе строки лежат по этапам и местам; порядок важен для тай-брейков, поэтому
+// сортируем явно: этап, затем место (без места — в конец), затем как в листе
+const byRoundAndPos = rows => rows
+  .map((r, i) => [r, i])
+  .sort((a, b) => (a[0]['Round'] - b[0]['Round'])
+    || ((a[0]['Pos.'] == null) - (b[0]['Pos.'] == null))
+    || ((a[0]['Pos.'] ?? 0) - (b[0]['Pos.'] ?? 0))
+    || (a[1] - b[1]))
+  .map(([r]) => r);
+
+/* Протоколы дивизиона в прежнем виде: гонки (с дуэлями отдельно) и квалификации */
+function divisionRows(results, year, division) {
+  const mine = results.filter(r => r.season === year && r.div === DIV_CODE[division] && r.name);
+  const own = new Set(mine.filter(r => !r.guest).map(r => r.name));
+  const guestOnly = new Set(mine.filter(r => r.guest && !own.has(r.name)).map(r => r.name));
+  const rows = sess => byRoundAndPos(mine.filter(r => sess.includes(r.sess)).map(r => protocolRow(r, guestOnly)));
+  return { races: rows(['R']), quals: rows(['Q', 'D1', 'D2']) };
+}
+
+/* Лист заявок в том виде, который читает computeEntries: первая строка — номера этапов,
+   дальше по строке на «команда + машина» с отметкой на заявленных этапах.
+
+   В новой таблице строка заявки — это season, div, team, num, признак фулл-тайма, man,
+   затем период, на который машина числится за командой (от/до), период заявления
+   фулл-тайма (от/до, у парт-тайма пусто), число фактически поданных прогнозов и, наконец,
+   признаки факта по каждому этапу 0–35. Метрике нужен именно ПЛАН — этапы заявления;
+   факт она считает сама по листу квалификаций. Поэтому отмечаем период заявления,
+   а парт-тайм машины (периода нет) в фулл-тайм не попадают. */
+function entriesMatrix(entryRows, year, division) {
+  const code = DIV_CODE[division];
+  const at = (r, i) => Object.values(r)[i];
+  const mine = entryRows.filter(r => at(r, 0) === year && at(r, 1) === code);
+  if (!mine.length) return [];
+
+  const declared = r => {
+    const start = at(r, 8), end = at(r, 9);
+    return at(r, 4) === true && start != null && end != null ? [Number(start), Number(end)] : null;
+  };
+  const last = Math.max(...mine.map(r => declared(r)?.[1] ?? 0));
+  const head = { Team: null, Car: null };
+  for (let rnd = 0; rnd <= last; rnd++) head['R' + rnd] = rnd;
+
+  return [head, ...mine.map(r => {
+    const row = { Team: at(r, 2), Car: String(at(r, 3) ?? '') };
+    const range = declared(r);
+    if (range) for (let rnd = range[0]; rnd <= Math.min(range[1], last); rnd++) row['R' + rnd] = 1;
+    return row;
+  })];
+}
+
+/* Прежние имена листов — их ещё спрашивает калькулятор («2026 Open Races», «2026 Calendar») */
+async function legacySheet(name, fresh) {
+  const m = name.match(/^(\d{4}) (Open|Star) (Races|Quals)$/);
+  if (m) {
+    const rows = divisionRows(await fetchSheet('results', fresh), Number(m[1]), m[2].toLowerCase());
+    return m[3] === 'Races' ? rows.races : rows.quals;
   }
-  const merged = new Set([...guest].filter(d => own.has(d)));
-  for (const r of rows) {
-    const d = r['Driver'];
-    if (!d || !d.endsWith(' (i)')) continue;
-    const base = d.slice(0, -4);
-    if (!merged.has(base)) continue;
-    r['Driver'] = base;
-    r.guest = true;
-  }
-  return merged;
+  const cal = name.match(/^(\d{4}) Calendar$/);
+  if (cal) return (await fetchSheet('rounds', fresh)).filter(r => r['Year'] === Number(cal[1]));
+  return fetchSheet(name, fresh);
 }
 
 // Посчитанный сезон держим готовым: пересчёт нужен только на новых данных
@@ -49,28 +114,39 @@ async function buildSeason(year, division, fresh) {
   st.year = year;
   st.division = division;
 
-  const [racesRows, qualsRows, roundRows, coalRows, dedRows, changeRows, entryRows] = await Promise.all([
-    fetchSheet(`${year} ${div.races}`, fresh),
-    fetchSheet(`${year} ${div.quals}`, fresh),
-    fetchSheet(`${year} Calendar`, fresh),
-    div.coalitions ? fetchSheet(`${year} ${div.coalitions}`, fresh).catch(() => []) : [],
-    fetchSheet(`${year} Deductions`, fresh).catch(() => []),
-    fetchSheet(`${year} Changes`, fresh).catch(() => []),
-    div.entries ? fetchSheet(`${year} ${div.entries}`, fresh).catch(() => []) : [],
+  // coalitions — необязательный лист: нет его, значит и метки коалиций нет
+  const [results, roundRows, dedRows, changeRows, entryRows, coalRows] = await Promise.all([
+    fetchSheet('results', fresh),
+    fetchSheet('rounds', fresh),
+    fetchSheet('deductions', fresh).catch(() => []),
+    fetchSheet('division_changes', fresh).catch(() => []),
+    fetchSheet('entries', fresh).catch(() => []),
+    fetchSheet('coalitions', fresh).catch(() => []),
   ]);
 
-  st.entries = L.computeEntries(entryRows);
-  st.coalitions = new Set(coalRows.map(r => Object.values(r)[0]).filter(Boolean));
+  /* Листа coalitions в таблице может не быть, а gviz на неизвестное имя отдаёт первый
+     лист книги (results). Поэтому принимаем ответ только если он похож на список команд. */
+  const coalitions = coalRows.filter(r => !('sess' in r) && (r.team || r.Team));
+
+  const { races: racesRows, quals: qualsRows } = divisionRows(results, year, division);
+
+  st.entries = L.computeEntries(entriesMatrix(entryRows, year, division));
+  st.coalitions = new Set(coalitions
+    .filter(r => (r.season ?? r.Year ?? year) === year && (!r.div || r.div === DIV_CODE[division]))
+    .map(r => r.team || r.Team || Object.values(r).filter(v => typeof v === 'string').pop())
+    .filter(Boolean));
   st.deductions = Object.fromEntries(
-    dedRows.filter(r => r['Team'] && r['Points'] != null)
+    dedRows.filter(r => r['Year'] === year && r['Team'] && r['Points'] != null)
       .map(r => [r['Team'], { pts: r['Points'], reason: r['Reason'] || '', round: r['Round'] ?? null }]));
+  const cal = roundRows.filter(r => r['Year'] === year && r['#'] != null);
   st.roundNames = Object.fromEntries(
-    roundRows.filter(r => r['#'] != null)
-      .map(r => [String(r['#']), `${L.fmtRoundNum(r['#'])} · ${r['Name'] || ''}`]));
+    cal.map(r => [String(r['#']), `${L.fmtRoundNum(r['#'])} · ${r['Name'] || ''}`]));
   st.roundAbb = Object.fromEntries(
-    roundRows.filter(r => r['#'] != null && r['Abb.']).map(r => [String(r['#']), r['Abb.']]));
-  st.guestByChange = new Set(changeRows.filter(r => r.B === div.label && r.A).map(r => r.A));
-  mergeGuestEntries(racesRows, qualsRows);
+    cal.filter(r => r['Abb.']).map(r => [String(r['#']), r['Abb.']]));
+  // сменившие дивизион: в том, откуда ушли, они гости
+  st.guestByChange = new Set(changeRows
+    .filter(r => r['Year'] === year && r['From'] === div.label && r['Driver'])
+    .map(r => r['Driver']));
   st.teamOf = L.computeTeamOf(racesRows, qualsRows);
   st.carOf = L.computeCarOf(racesRows, qualsRows);
 

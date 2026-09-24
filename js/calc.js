@@ -684,7 +684,7 @@ function loadSheets(kind){
   if(sheetCache[kind])return;
   sheetCache[kind]={drivers:{},qualRows:[]};   // заглушка — повторно не грузим
   const div=DIVISIONS[kind];
-  fetchSheet(`${site.year} ${div.races}`).then(rows=>{
+  legacySheet(`${site.year} ${div.races}`).then(rows=>{
     const m={};
     rows.forEach(r=>{
       if(!r['Driver']||r['Round']==null)return;
@@ -695,7 +695,7 @@ function loadSheets(kind){
     sheetCache[kind].raceRows=rows;
     if(state&&calcKind===kind)render();
   }).catch(e=>console.error(`Калькулятор: лист ${div.races}`,e));
-  fetchSheet(`${site.year} ${div.quals}`).then(q=>{
+  legacySheet(`${site.year} ${div.quals}`).then(q=>{
     sheetCache[kind].qualRows=q;
     if(state&&calcKind===kind)render();
   }).catch(e=>console.error(`Калькулятор: лист ${div.quals}`,e));
@@ -792,7 +792,7 @@ function roundSelect(){
       ...calendar.map(c=>el('option',{value:String(c.n),...(String(c.n)===String(state.round)?{selected:'selected'}:{})},c.n+' · '+c.name))));
 }
 
-fetchSheet(`${site.year} Calendar`).then(cal=>{
+legacySheet(`${site.year} Calendar`).then(cal=>{
   // дуэли (1.1, 1.2) — часть первого этапа, отдельно не выбираются; этап 0 — вне зачёта
   calendar=cal.filter(c=>Number.isInteger(c['#'])&&c['#']>0).map(c=>({n:c['#'],name:c['Name']||''}));
   if(state)render();
