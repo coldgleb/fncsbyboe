@@ -20,7 +20,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
   <!-- ?v= — версия сборки: меняется при каждой публикации, чтобы браузер не брал старые
        стили и скрипты из кэша вперемешку с новой страницей -->
-  <link rel="stylesheet" href="css/style.css?v=2026-09-24.3">
+  <link rel="stylesheet" href="css/style.css?v=2026-09-27.1">
 </head>
 
 <body>
@@ -51,6 +51,7 @@
         <button class="tab-btn" data-tab="owners" onclick="switchTab('owners')">Владельцы</button>
         <button class="tab-btn" data-tab="entries" onclick="switchTab('entries')">Командная метрика</button>
         <button class="tab-btn" data-tab="h2h" onclick="switchTab('h2h')">H2H</button>
+        <button class="tab-btn" data-tab="fun" onclick="switchTab('fun')">Прочее</button>
         <button class="tab-btn" data-tab="calc" onclick="switchTab('calc')">Калькулятор</button>
       </div>
       <div class="toolbar-tools">
@@ -281,6 +282,14 @@
       </div>
     </div>
 
+    <div id="tab-fun" class="tab-panel">
+      <div class="round-toggle fun-toggle">
+        <button class="rtog-btn rtog-active" data-fun="race" onclick="setFunSession('race')">Гонки</button>
+        <button class="rtog-btn" data-fun="qual" onclick="setFunSession('qual')">Квалификации</button>
+      </div>
+      <div id="fun-body"></div>
+    </div>
+
     <div id="tab-golub" class="tab-panel">
       <div class="round-bar">
         <label class="round-label"
@@ -344,19 +353,20 @@
     </div>
   </main>
 
-  <script src="js/logic.gen.js?v=2026-09-24.3"></script>
-  <script src="js/core.js?v=2026-09-24.3"></script>
-  <script src="js/local-api.js?v=2026-09-24.3"></script>
-  <script src="js/charts.js?v=2026-09-24.3"></script>
-  <script src="js/teams.js?v=2026-09-24.3"></script>
-  <script src="js/drivers.js?v=2026-09-24.3"></script>
-  <script src="js/entries.js?v=2026-09-24.3"></script>
-  <script src="js/golub.js?v=2026-09-24.3"></script>
-  <script src="js/h2h.js"></script>
-  <script src="js/rounds.js?v=2026-09-24.3"></script>
-  <script src="js/modals.js?v=2026-09-24.3"></script>
-  <script src="js/app.js?v=2026-09-24.3"></script>
-  <script src="js/calc.js?v=2026-09-24.3"></script>
+  <script src="js/logic.gen.js?v=2026-09-27.1"></script>
+  <script src="js/core.js?v=2026-09-27.1"></script>
+  <script src="js/local-api.js?v=2026-09-27.1"></script>
+  <script src="js/charts.js?v=2026-09-27.1"></script>
+  <script src="js/teams.js?v=2026-09-27.1"></script>
+  <script src="js/drivers.js?v=2026-09-27.1"></script>
+  <script src="js/entries.js?v=2026-09-27.1"></script>
+  <script src="js/golub.js?v=2026-09-27.1"></script>
+  <script src="js/h2h.js?v=2026-09-27.1"></script>
+  <script src="js/fun.js?v=2026-09-27.1"></script>
+  <script src="js/rounds.js?v=2026-09-27.1"></script>
+  <script src="js/modals.js?v=2026-09-27.1"></script>
+  <script src="js/app.js?v=2026-09-27.1"></script>
+  <script src="js/calc.js?v=2026-09-27.1"></script>
 </body>
 
 </html>

@@ -48,8 +48,10 @@ const ENTRIES_COLS = [
 ];
 
 // Выделяем только ранги и итоговую метрику — сами значения идут фоном, приглушённо
-const colClass = label => label === 'METRIC SCORE' ? 'metric-col'
-  : label.endsWith('RANK') ? 'rank-col' : 'val-col';
+// на телефоне остаются только METRIC SCORE и ENTRIES % (остальное — hide-sm)
+const ENTRIES_MOBILE = new Set(['METRIC SCORE', 'ENTRIES %']);
+const colClass = label => (label === 'METRIC SCORE' ? 'metric-col'
+  : label.endsWith('RANK') ? 'rank-col' : 'val-col') + (ENTRIES_MOBILE.has(label) ? '' : ' hide-sm');
 
 function renderEntries() {
   // метрику (со всеми контрольными точками) считает сервер, часть metric
@@ -66,8 +68,8 @@ function renderEntries() {
 </div>
 <div class="pivot-scroll"><table class="pivot-table entries-table" data-sort="auto">
 <thead>
-<tr class="grp-row"><th colspan="2"></th>${ENTRIES_GROUPS.map(([g, n]) => `<th colspan="${n}">${g}</th>`).join('')}</tr>
-<tr><th class="num-col">#</th><th class="driver-col">Команда</th>
+<tr class="grp-row hide-sm"><th colspan="2"></th>${ENTRIES_GROUPS.map(([g, n]) => `<th colspan="${n}">${g}</th>`).join('')}</tr>
+<tr><th class="num-col"></th><th class="driver-col">Команда</th>
 ${ENTRIES_COLS.map(([label, , title]) => `<th class="${colClass(label)}" title="${title}">${label}</th>`).join('')}
 </tr></thead><tbody>`;
 

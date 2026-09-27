@@ -737,6 +737,32 @@ main {
   border-left: 3px solid var(--up);
 }
 
+/* Номер машины в таблицах по участникам (с 27 этапа): заливка — по Чейзу владельцев,
+   независимо от подсветки строки по Чейзу гонщиков */
+.standings-table td.car-chase,
+.round-table td.car-chase {
+  /* тот же оттенок, что у строки Чейза (.row-playoff td: 7% --up поверх фона таблицы) */
+  background: color-mix(in srgb, var(--up) 7%, var(--surface));
+}
+
+.standings-table td.car-plain,
+.round-table td.car-plain {
+  background: var(--surface);
+}
+
+/* столбец «Номер» — по центру */
+.standings-table th.c,
+.standings-table td.c,
+.round-table th.c,
+.round-table td.c {
+  text-align: center;
+}
+
+/* ячейка в одну строку (имя пилота в карточке машины) */
+.nowrap {
+  white-space: nowrap;
+}
+
 .row-cutoff td {
   border-top: 2px solid color-mix(in srgb, var(--down) 60%, transparent) !important;
 }
@@ -1145,10 +1171,6 @@ table[data-sort="auto"] th:hover {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.upto-note {
-  opacity: .8;
 }
 
 /* ── Мультиселект пилотов ── */
@@ -2149,12 +2171,10 @@ table[data-sort="auto"] th:hover {
 
   .pin-l0 { left: 0; }
   .pin-l36 { left: 36px; }
-  .pin-l76 { left: 76px; }
+  .pin-l80 { left: 80px; }
   .pin-l84 { left: 84px; }
-  .pin-l120 { left: 120px; }
 
   .standings-table .pw36 { width: 36px; min-width: 36px; max-width: 36px; padding-inline: 4px; }
-  .standings-table .pw40 { width: 40px; min-width: 40px; max-width: 40px; padding-inline: 4px; }
   .standings-table .pw44 { width: 44px; min-width: 44px; max-width: 44px; padding-inline: 4px; }
   .standings-table .pw48 { width: 48px; min-width: 48px; max-width: 48px; padding-inline: 4px; }
 
@@ -2197,7 +2217,6 @@ table[data-sort="auto"] th:hover {
   }
 
   .upto-lbl,
-  .upto-note,
   .lbl-full {
     display: none;
   }
@@ -2276,6 +2295,37 @@ table[data-sort="auto"] th:hover {
 
   .modal-head h2 {
     font-size: 24px;
+  }
+}
+
+/* ── Вкладка «Прочее» ── */
+.fun-toggle {
+  margin: 0 0 14px;
+}
+
+/* карточки в одном ряду — одной высоты (производители и серии, пары ниже) */
+.fun-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+
+/* пилоты и команды — две таблицы рядом */
+.fun-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.fun-pivot {
+  margin-top: 12px;
+}
+
+@media (max-width: 900px) {
+  .fun-grid,
+  .fun-pair {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

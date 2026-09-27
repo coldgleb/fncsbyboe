@@ -248,9 +248,14 @@ async function getSeason(year, division, fresh) {
 
 /* ── Зачёты на выбранный этап ── */
 
+/* Реальный Чейз (очки сброшены на сетку): «авто» — после 26 этапа; ручной выбор «Чейз» —
+   с 26 этапа (на нём видна стартовая сетка Чейза), раньше не действует */
+const isRealChase = (L, chase, n) => (chase === 'chase' && n >= L.CHASE_START)
+  || (chase !== 'regular' && n > L.CHASE_START);
+
 const ownersUpTo = ({ L, st }, at, chase) => {
   const rows = st.races.rowsWithDuel.filter(r => r['Round'] < at + 1);
-  const real = chase === 'chase' || (chase !== 'regular' && at > L.CHASE_START);
+  const real = isRealChase(L, chase, at);
   return real ? L.computeChaseOwnerStandings(rows) : L.computeOwnerStandings(rows);
 };
 
@@ -271,7 +276,7 @@ function sliceOf(s, session, upto, chase = 'auto') {
   const standingsUpTo = n => {
     if (session === 'owners') return ownersUpTo(s, n, chase);
     const rows = (base === 'quals' ? st.quals.rows : st.races.rowsWithDuel).filter(r => r['Round'] < n + 1);
-    const real = chase === 'chase' || (chase !== 'regular' && n > L.CHASE_START);
+    const real = isRealChase(L, chase, n);
     return real ? L.computeChaseStandings(rows) : L.computeStandings(rows);
   };
 
@@ -290,7 +295,7 @@ function sliceOf(s, session, upto, chase = 'auto') {
      - в регулярном сезоне: в топ-16 — запас над первым вне Чейза, ниже — отставание
        от последнего в Чейзе (гостям и стоящим внутри зоны Чейза без ценза — нет). */
   const playoffSet = L.buildPlayoffSet(all, at);
-  const real = chase === 'chase' || (chase !== 'regular' && at > L.CHASE_START);
+  const real = isRealChase(L, chase, at);
   const inChase = all.filter(x => playoffSet.has(x.driver));
   let lastChaseIdx = -1;
   all.forEach((x, i) => { if (playoffSet.has(x.driver)) lastChaseIdx = i; });
@@ -338,6 +343,10 @@ const bestOf = (rows, key, fn) => {
 
 /* Протокол одного вида этапа: порядок с дисквалифицированными, «прошёл дальше»,
    ± квала→гонка, очки NASCAR и ключи лучших значений (hl) — как api.round_protocol. */
+/* Участники Чейза своей сессии: у посеянных после 26 этапа в готовом зачёте есть chaseSeed.
+   Пока сезон не дошёл до Чейза, зачёт обычный и сет пустой. */
+const chaseSet = (st, kind) => new Set(st[kind].standings.filter(x => x.chaseSeed != null).map(x => x.driver));
+
 function roundProtocol(s, round, view) {
   const { L, st } = s;
   const n = Number(round);
@@ -369,6 +378,8 @@ function roundProtocol(s, round, view) {
   })();
   const maxes = { QL: max('QL'), DR3: max('DR3'), DR4: max('DR4'), CAU: max('CAU'), RET: max('RET'), MN: max('MN') };
   const isRace = view === 'race';
+  // с 27 этапа подсвечиваем участников Чейза: в гонке — Чейза гонок, в квале — Чейза квал
+  const chase = n > L.CHASE_START && (isRace || view === 'qual') ? chaseSet(st, isRace ? 'races' : 'quals') : null;
 
   const out = rows.map(r => {
     const hl = [];
@@ -394,6 +405,7 @@ function roundProtocol(s, round, view) {
       'DR4': r['DR4'] ?? null, 'CAU': r['CAU'] ?? null, 'RET': r['RET'] ?? null, 'MN': r['MN'] ?? null,
       'DUE': r['DUE'] ?? null, 'Points': r['Points'] ?? null,
       nascar: L.scorePts(r['Pos.'], roundNum), made, delta, hl, guest: !!r.guest,
+      chase: !!chase?.has(r['Driver']),
     };
   });
   return { metric, rows: out };
@@ -467,7 +479,9 @@ function roundMetric(s, round) {
       ownerRank: ownerRank[car] ?? owners.length + 1, carNote: other && other !== driver ? other : null,
     };
   }));
-  return { field, rows: list };
+  // с 27 этапа — участники Чейза по личному зачёту гонок
+  const chase = n > L.CHASE_START ? chaseSet(st, 'races') : null;
+  return { field, rows: chase ? list.map(m => ({ ...m, chase: chase.has(m.driver) })) : list };
 }
 
 /* ── Карточки ── */
@@ -646,6 +660,86 @@ function h2hTeams(s, a, b) {
   };
 }
 
+/* ── Вкладка «Прочее»: зачёт производителей, текущие серии, подиумы / топ-5 / топ-10 ──
+   Отдельно по гонкам и квалификациям; дуэли, этап 0 и гостевые заявки не учитываются. */
+function funStats(s, session) {
+  const { L, st } = s;
+  const src = session === 'qual' ? st.quals.rows : st.races.rows;
+  const rows = src.filter(r => r['Driver'] && r['Round'] !== 0 && !L.SPRINT_ROUNDS.has(r['Round'])
+    && !r.guest && !L.isGuestDriver(r['Driver']));
+  const rounds = [...new Set(rows.map(r => r['Round']))].sort((a, b) => a - b);
+
+  /* При равенстве место общее, а порядок строк — по месту в зачёте после последнего этапа:
+     пилоты — в зачёте своей сессии, команды — в командном зачёте */
+  withTeams(s);
+  const standRank = list => Object.fromEntries(list.filter(x => x.rank != null).map(x => [x.driver ?? x.team, x.rank]));
+  const driverRank = standRank(session === 'qual' ? st.quals.standings : st.races.standings);
+  const teamRank = standRank(st.teamStandings);
+  const byStanding = (ranks, a, b) => (ranks[a] ?? Infinity) - (ranks[b] ?? Infinity) || a.localeCompare(b);
+
+  // 1. Производители: на этапе у марки в зачёт идёт её лучший финиш — очки за него, как в NASCAR.
+  //    Считается машина, поэтому гостевые заявки здесь учитываются
+  const mfrRows = src.filter(r => r['Driver'] && r['Round'] !== 0 && !L.SPRINT_ROUNDS.has(r['Round']));
+  const mfr = {};
+  for (const n of rounds) {
+    const best = {};
+    for (const r of mfrRows) {
+      if (r['Round'] !== n || r['Pos.'] == null || !r['M.']) continue;
+      const k = mfrKey(r['M.']);
+      if (!best[k] || r['Pos.'] < best[k]['Pos.']) best[k] = r;
+    }
+    for (const [k, r] of Object.entries(best)) {
+      const m = mfr[k] ||= { mfr: r['M.'], points: 0, wins: 0, byRound: {} };
+      const pts = L.scorePts(r['Pos.'], n);
+      m.points += pts;
+      if (r['Pos.'] === 1) m.wins++;
+      m.byRound[n] = { pos: r['Pos.'], driver: r['Driver'], pts };
+    }
+  }
+  const manufacturers = Object.values(mfr).sort((a, b) => b.points - a.points || b.wins - a.wins);
+
+  // 2. Текущие серии: подряд идущие этапы с конца, пока у пилота есть строка на этапе
+  const present = {};
+  for (const r of rows) (present[r['Driver']] ||= new Set()).add(r['Round']);
+  const streaks = Object.entries(present).map(([driver, set]) => {
+    let len = 0;
+    for (let i = rounds.length - 1; i >= 0 && set.has(rounds[i]); i--) len++;
+    // последний пропуск — этап перед началом серии (null — пропусков не было с начала сезона)
+    const missed = len && rounds.length > len ? rounds[rounds.length - len - 1] : null;
+    return { driver, len, from: len ? rounds[rounds.length - len] : null, missed, team: st.teamOf[driver] || '—' };
+  }).filter(x => x.len > 0).sort((a, b) => b.len - a.len || byStanding(driverRank, a.driver, b.driver));
+
+  // 3. Подиумы / топ-5 / топ-10 — по пилотам и по командам заявки
+  const top = limit => {
+    const byDriver = {}, byTeam = {};
+    for (const r of rows) {
+      if (r['Pos.'] == null || r['Pos.'] > limit) continue;
+      byDriver[r['Driver']] = (byDriver[r['Driver']] || 0) + 1;
+      const t = r['Team'];
+      if (t && t !== '—' && t !== 'Guest entry') byTeam[t] = (byTeam[t] || 0) + 1;
+    }
+    // топ-10 по количеству; равные делят место, а стоят по месту в зачёте
+    const rank = (m, ranks) => {
+      const list = Object.entries(m).map(([name, n]) => ({ name, n }))
+        .sort((a, b) => b.n - a.n || byStanding(ranks, a.name, b.name));
+      list.forEach((x, i) => { x.rank = i && x.n === list[i - 1].n ? list[i - 1].rank : i + 1; });
+      return list.slice(0, 10);
+    };
+    return { drivers: rank(byDriver, driverRank), teams: rank(byTeam, teamRank) };
+  };
+
+  return {
+    rounds, manufacturers, streaks: rankStreaks(streaks).slice(0, 30),
+    wins: top(1), podium: top(3), top5: top(5), top10: top(10),
+  };
+}
+
+// места у серий: равные делят место
+function rankStreaks(list) {
+  list.forEach((x, i) => { x.rank = i && x.len === list[i - 1].len ? list[i - 1].rank : i + 1; });
+  return list;
+}
+
 function teamCard(s, team) {
   const { L, st } = s;
   withTeams(s);
@@ -680,6 +774,14 @@ function teamCard(s, team) {
 }
 
 /* ── Сводка сезона для первого экрана ── */
+/* Машины в Чейзе владельцев: посеянные после 26 этапа (chaseSeed в зачёте владельцев на
+   последнем этапе). Пока Чейза нет — пусто. */
+function ownerChaseCars(s) {
+  const last = s.st.races.rounds.filter(r => !s.L.SPRINT_ROUNDS.has(r)).pop();
+  if (!(last > s.L.CHASE_START)) return [];
+  return ownersUpTo(s, last, 'auto').filter(o => o.chaseSeed != null).map(o => String(o.car));
+}
+
 function seasonSummary(s) {
   const { L, st } = s;
   const setArr = x => [...(x || [])];
@@ -709,6 +811,7 @@ function seasonSummary(s) {
     coalitions: setArr(st.coalitions),
     guestByChange: setArr(st.guestByChange),
     deductions: st.deductions, teamOf: st.teamOf, carOf: st.carOf, carColors: st.carColors, roundMaxPos: st.roundMaxPos,
+    ownerChase: ownerChaseCars(s),
     attendance: { races: mapOfSets(st.attendance.races), quals: mapOfSets(st.attendance.quals) },
     qualsParticipation: mapOfSets(st.qualsParticipation),
   };
@@ -724,7 +827,8 @@ const LOCAL_API = {
     const totals = Object.fromEntries((p.session === 'qual' ? s.st.quals.standings : s.st.races.standings)
       .map(x => [x.driver, x.total]));
     // в сводной гонок место в квалификации не показываем
-    return { map, rounds, order, qualMap: p.session === 'qual' ? qualMap : null, rankOf, totals };
+    return { map, rounds, order, qualMap: p.session === 'qual' ? qualMap : null, rankOf, totals,
+      chase: [...chaseSet(s.st, p.session === 'qual' ? 'quals' : 'races')] };
   },
 
   gains: s => { withGains(s); return s.st.gains; },
@@ -758,6 +862,7 @@ const LOCAL_API = {
   driver_card: (s, p) => driverCard(s, p.driver, p.mode),
   team_card: (s, p) => teamCard(s, p.team),
   car_card: (s, p) => carCard(s, p.car),
+  fun: (s, p) => funStats(s, p.session),
   h2h: (s, p) => p.mode === 'teams' ? h2hTeams(s, p.a, p.b) : h2hDrivers(s, p.a, p.b),
 };
 

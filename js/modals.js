@@ -54,15 +54,15 @@ async function openDriver(driver, mode) {
   const body = rounds.map(r => qualsOnly ? `<tr>
   <td>${roundLink(r)}</td>
   <td class="r">${place(r.qualPos, r.qualDQ)}</td>
-  <td class="r muted">${metricMark(r)}${r.qualPts ?? '—'}</td>
+  <td class="r muted hide-sm">${metricMark(r)}${r.qualPts ?? '—'}</td>
   <td class="r">${nascarCell(r)}</td>
 </tr>` : `<tr>
   <td>${roundLink(r)}</td>
   <td class="r">${place(r.qualPos, r.qualDQ)}</td>
-  <td class="r muted">${metricMark(r)}${r.qualPts ?? '—'}</td>
+  <td class="r muted hide-sm">${metricMark(r)}${r.qualPts ?? '—'}</td>
   <td class="r">${place(r.racePos, r.raceDQ)}</td>
-  <td class="r muted">${r.racePts ?? '—'}</td>
-  <td class="r">${r.diff == null ? '<span class="muted">—</span>' : r.diff === 0 ? '<span class="muted">0</span>'
+  <td class="r muted hide-sm">${r.racePts ?? '—'}</td>
+  <td class="r hide-sm">${r.diff == null ? '<span class="muted">—</span>' : r.diff === 0 ? '<span class="muted">0</span>'
     : `<span class="${r.diff > 0 ? 'up' : 'down'}">${r.diff > 0 ? '+' : ''}${r.diff}</span>`}</td>
   <td class="r">${nascarCell(r)}</td>
 </tr>`).join('');
@@ -86,10 +86,10 @@ ${qualsOnly ? qualStats : `<div class="modal-stats-pair">${raceStats}${qualStats
   <thead><tr>
     <th>Этап</th>
     <th class="r">Квала</th>
-    <th class="r" title="Очки за прогноз в квалификации">Очки кв.</th>
+    <th class="r hide-sm" title="Очки за прогноз в квалификации">Очки кв.</th>
     ${qualsOnly ? '' : `<th class="r">Гонка</th>
-    <th class="r" title="Очки за прогноз в гонке">Очки гн.</th>
-    <th class="r">±</th>`}
+    <th class="r hide-sm" title="Очки за прогноз в гонке">Очки гн.</th>
+    <th class="r hide-sm">±</th>`}
     <th class="r" title="${qualsOnly ? 'Очки в зачёт квалификаций' : 'Очки в зачёт (дуэли включены в Дейтону)'}">NASCAR</th>
   </tr></thead>
   <tbody>${body || `<tr><td colspan="${qualsOnly ? 4 : 7}" class="muted">Нет данных</td></tr>`}</tbody>
@@ -137,14 +137,16 @@ async function openCar(car) {
     o.wins > 0 ? stat('Победы', o.wins) : stat('Лучший', o.best != null ? 'P' + o.best : '—'),
   ].join('') : '';
   const place = (pos, dq) => pos ?? (dq ? DQ_MARK : '—');
-  const guestMark = r => r.guest ? ' <span class="guest-mark" title="Гостевая заявка: очки машине идут">(i)</span>' : '';
+  // у гостя без своих заявок «(i)» уже ставит driverLink — второй раз не дублируем
+  const guestMark = r => r.guest && !r.driver.includes('(i)')
+    ? ' <span class="guest-mark" title="Гостевая заявка: очки машине идут">(i)</span>' : '';
   const body = card.rounds.map(r => `<tr>
   <td><span class="driver-link" title="Открыть результаты этапа" onclick="goToRound(${Math.trunc(r.round)})">${roundFullName(r.round)}</span></td>
-  <td>${driverLink(r.driver)}${guestMark(r)}</td>
+  <td class="nowrap">${driverLink(r.driver)}${guestMark(r)}</td>
   <td class="r">${place(r.qualPos, r.qualDQ)}</td>
-  <td class="r muted">${r.qualPts ?? '—'}</td>
+  <td class="r muted hide-sm">${r.qualPts ?? '—'}</td>
   <td class="r">${place(r.racePos, r.raceDQ)}</td>
-  <td class="r muted">${r.racePts ?? '—'}</td>
+  <td class="r muted hide-sm">${r.racePts ?? '—'}</td>
   <td class="r">${r.nascar ?? '—'}</td>
 </tr>`).join('');
 
@@ -166,8 +168,8 @@ ${o ? `<div class="modal-stats-block"><h3 class="modal-stats-title">Зачёт �
 <div class="table-scroll"><table class="standings-table" data-sort="auto">
   <thead><tr>
     <th>Этап</th><th>Пилот</th>
-    <th class="r">Квала</th><th class="r" title="Очки за прогноз в квалификации">Очки кв.</th>
-    <th class="r">Гонка</th><th class="r" title="Очки за прогноз в гонке">Очки гн.</th>
+    <th class="r">Квала</th><th class="r hide-sm" title="Очки за прогноз в квалификации">Очки кв.</th>
+    <th class="r">Гонка</th><th class="r hide-sm" title="Очки за прогноз в гонке">Очки гн.</th>
     <th class="r" title="Очки машине в зачёт владельцев (дуэли — в итоге, не в строке этапа)">NASCAR</th>
   </tr></thead>
   <tbody>${body || '<tr><td colspan="7" class="muted">Нет данных</td></tr>'}</tbody>
@@ -219,10 +221,10 @@ async function openTeam(team) {
     return `<tr>
       <td><span class="driver-link" title="Открыть результаты этапа" onclick="goToRound(${r})">${roundFullName(r)}</span></td>
       <td>${cells}</td>
-      <td class="team-text">${bestOfRound.map(x => driverLink(x.driver, null, surname(x.driver))).join(' · ') || '—'}</td>
+      <td class="team-text hide-sm">${bestOfRound.map(x => driverLink(x.driver, null, surname(x.driver))).join(' · ') || '—'}</td>
       <td class="r">${got || '—'}</td>
-      <td class="r">${rr == null ? '—' : `<span class="pos-badge">${rr}</span>`}</td>
-      <td class="r"><strong>${cum}</strong></td>
+      <td class="r hide-sm">${rr == null ? '—' : `<span class="pos-badge">${rr}</span>`}</td>
+      <td class="r hide-sm"><strong>${cum}</strong></td>
       <td class="r">${row.rank ?? '—'}</td>
     </tr>`;
   }).join('');
@@ -244,10 +246,10 @@ async function openTeam(team) {
   <thead><tr>
     <th>Этап</th>
     <th title="Два лучших результата команды на этапе">Зачётные места</th>
-    <th>Кто принёс</th>
+    <th class="hide-sm">Кто принёс</th>
     <th class="r">Очки</th>
-    <th class="r" title="Место команды на этапе — по очкам, набранным на нём">На этапе</th>
-    <th class="r">Всего</th>
+    <th class="r hide-sm" title="Место команды на этапе — по очкам, набранным на нём">На этапе</th>
+    <th class="r hide-sm">Всего</th>
     <th class="r" title="Место в командном зачёте после этапа">Место</th>
   </tr></thead>
   <tbody>${body || '<tr><td colspan="7" class="muted">Нет данных</td></tr>'}</tbody>

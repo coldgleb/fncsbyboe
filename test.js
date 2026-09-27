@@ -330,13 +330,14 @@ const row = (pos, pts, dr = 10) => ({ 'Pos.': pos, Points: pts, DR1: dr, Driver:
 }
 
 {
-  // Чейз (сброс очков на сетку 2000+) — только после 26 этапа, даже если тумблер стоит на «Чейз»
+  // Чейз (сброс очков на сетку 2000+): сам — после 26 этапа; явный выбор «Чейз» — уже на 26-м
+  // (стартовая сетка Чейза), раньше не действует
   const state = { chaseView: { races: 'chase', quals: 'auto', owners: 'regular' } };
   const isChaseMode = new Function('state', 'CHASE_START',
     cut('drivers.js', 'const isChaseMode', '// Зачёт по состоянию') + '; return isChaseMode;')(state, 26);
 
   assert.strictEqual(isChaseMode('races', 10), false, 'на 10 этапе Чейза нет даже при явном выборе');
-  assert.strictEqual(isChaseMode('races', 26), false, '26 этап — последний регулярный, Чейза ещё нет');
+  assert.strictEqual(isChaseMode('races', 26), true, 'на 26 этапе явный «Чейз» показывает стартовую сетку');
   assert.strictEqual(isChaseMode('races', 27), true, 'с 27 этапа выбор «Чейз» действует');
   assert.strictEqual(isChaseMode('quals', 27), true, 'auto с 27 этапа — Чейз');
   assert.strictEqual(isChaseMode('quals', 26), false, 'auto до 27 этапа — регулярный сезон');

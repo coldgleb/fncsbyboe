@@ -76,16 +76,18 @@ const bestP = v => v == null ? '—' : 'P' + v;
 
 /* Пара ячеек A | B одного компонента. better(x, y) — x лучше y; первая ячейка пары
    получает разделитель слева, чтобы пары читались группами */
-function h2hPair(va, vb, show, better) {
+function h2hPair(va, vb, show, better, cls = '') {
   const aWins = va != null && vb != null && better(va, vb), bWins = va != null && vb != null && better(vb, va);
-  return `<td class="r pair-start${aWins ? ' h2h-win' : ''}">${show(va, 'a')}</td><td class="r${bWins ? ' h2h-win' : ''}">${show(vb, 'b')}</td>`;
+  return `<td class="r pair-start${cls}${aWins ? ' h2h-win' : ''}">${show(va, 'a')}</td><td class="r${cls}${bWins ? ' h2h-win' : ''}">${show(vb, 'b')}</td>`;
 }
 const lowerBetter = (x, y) => x < y, higherBetter = (x, y) => x > y;
 
 // Шапка таблицы по парам: сверху группа компонента, под ней короткие имена A и B
+// группа — название или [название, класс] (например, ' hide-sm' — скрыть на телефоне)
 function h2hPairHead(groups, na, nb) {
-  return `<tr class="grp-row"><th class="sticky-col"></th>${groups.map(g => `<th colspan="2" class="pair-start">${g}</th>`).join('')}</tr>
-<tr><th class="sticky-col">Этап</th>${groups.map(() => `<th class="r pair-start">${na}</th><th class="r">${nb}</th>`).join('')}</tr>`;
+  const g = groups.map(x => Array.isArray(x) ? x : [x, '']);
+  return `<tr class="grp-row"><th class="sticky-col"></th>${g.map(([t, c]) => `<th colspan="2" class="pair-start${c}">${t}</th>`).join('')}</tr>
+<tr><th class="sticky-col">Этап</th>${g.map(([, c]) => `<th class="r pair-start${c}">${na}</th><th class="r${c}">${nb}</th>`).join('')}</tr>`;
 }
 
 async function renderH2h() {
@@ -136,7 +138,9 @@ async function renderH2h() {
     blocks = h2hBlock('Квалификации', h2hScore('Кто выше', d.quals), driverRows(xq, yq, 'Поулы', 'Лучший старт'))
       + h2hBlock('Гонки', h2hScore('Кто выше', d.races), driverRows(xr, yr, 'Победы', 'Лучший финиш'));
     const short = n => n.replace(' (i)', '').split(' ').pop();
-    head = h2hPairHead(['Квала', 'Прогноз кв.', 'NASCAR кв.', 'Гонка', 'Прогноз гн.', 'NASCAR гн.'], short(a), short(b));
+    // на телефоне остаются Квала · Гонка · NASCAR гн.
+    const sm = ' hide-sm';
+    head = h2hPairHead(['Квала', ['Прогноз кв.', sm], ['NASCAR кв.', sm], 'Гонка', ['Прогноз гн.', sm], 'NASCAR гн.'], short(a), short(b));
     cols = 13;
     const metric = new Set(d.metric);
     const guest = x => x?.guest ? ' <span class="guest-mark" title="Гостевая заявка">(i)</span>' : '';
@@ -149,10 +153,10 @@ async function renderH2h() {
       const { qual: qa, race: ra } = r.a, { qual: qb, race: rb } = r.b;
       return `<tr><td class="sticky-col">${roundFullName(r.round)}${mMark}</td>
   ${h2hPair(val(qa, 'pos'), val(qb, 'pos'), (v, side) => posShow(r[side].qual), lowerBetter)}
-  ${h2hPair(val(qa, 'pts'), val(qb, 'pts'), v => v ?? '—', m ? lowerBetter : higherBetter)}
-  ${h2hPair(qa && qb ? qa.nascar : null, qa && qb ? qb.nascar : null, (v, side) => r[side].qual?.nascar ?? '—', higherBetter)}
+  ${h2hPair(val(qa, 'pts'), val(qb, 'pts'), v => v ?? '—', m ? lowerBetter : higherBetter, sm)}
+  ${h2hPair(qa && qb ? qa.nascar : null, qa && qb ? qb.nascar : null, (v, side) => r[side].qual?.nascar ?? '—', higherBetter, sm)}
   ${h2hPair(val(ra, 'pos'), val(rb, 'pos'), (v, side) => posShow(r[side].race), lowerBetter)}
-  ${h2hPair(val(ra, 'pts'), val(rb, 'pts'), v => v ?? '—', higherBetter)}
+  ${h2hPair(val(ra, 'pts'), val(rb, 'pts'), v => v ?? '—', higherBetter, sm)}
   ${h2hPair(ra && rb ? ra.nascar : null, ra && rb ? rb.nascar : null, (v, side) => r[side].race?.nascar ?? '—', higherBetter)}
 </tr>`;
     }).join('');

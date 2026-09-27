@@ -13,7 +13,7 @@ function teamTableHtml(standings, q) {
   const starts = (t, kind) => t.drivers.reduce((n, d) => n + (state.attendance[kind][d]?.size || 0), 0);
   const rows = standings.filter(t => hit(q, t.team, ...t.drivers));
   let html = `<div class="table-scroll"><table class="standings-table" data-sort="auto"><thead><tr>
-<th class="r w-40 pin pin-l0 pw36">#</th>
+<th class="r w-40 pin pin-l0 pw36"></th>
 <th class="pin pin-l36 pin-last">Команда</th>
 <th class="r">Очки</th>
 <th class="r hide-sm" title="Участий пилотов команды: в гонках / в квалификациях (максимум — пилотов × этапов)">Гонок / Квал.</th>
@@ -92,7 +92,7 @@ async function renderOwners() {
       ${roundsOf('owners').map(r => `<option value="${r}"${r === at ? ' selected' : ''}>${roundFullName(r)}</option>`).join('')}
     </select>
   </label>
-  ${at > CHASE_START ? `
+  ${at >= CHASE_START ? `
   <div class="round-toggle inline">
     <button class="rtog-btn${!isChase ? ' rtog-active' : ''}" onclick="setOwnersChase('regular')">Регулярный сезон</button>
     <button class="rtog-btn${isChase ? ' rtog-active' : ''}" onclick="setOwnersChase('chase')">Чейз</button>
@@ -101,12 +101,12 @@ async function renderOwners() {
   const rows = cut.standings.filter(o => hit(state.ownerFilter, o.car, ...o.drivers));
 
   let html = `<div class="table-scroll"><table class="standings-table" data-sort="auto"><thead><tr>
-<th class="r w-40 pin pin-l0 pw36">#</th>
-<th class="r pin pin-l36 pw48">Номер</th>
+<th class="r w-40 pin pin-l0 pw36"></th>
+<th class="c pin pin-l36 pw48">Номер</th>
 <th class="pin pin-l84 pin-last">Команда</th>
 <th>Авт.</th>
-<th>Пилоты</th>
-<th class="r" title="Пять лучших финишей">Топ-5</th>
+<th class="hide-sm">Пилоты</th>
+<th class="r hide-sm" title="Пять лучших финишей">Топ-5</th>
 <th class="r">Очки</th>
   </tr></thead><tbody>`;
 
@@ -114,11 +114,11 @@ async function renderOwners() {
     const rc = o.rank <= 3 ? `rank-${o.rank}` : '';
     html += `<tr class="${rc}">
   <td class="r pin pin-l0 pw36"><span class="pos-badge">${o.rank}</span></td>
-  <td class="r pin pin-l36 pw48">${carBadge(o.car, o.mfr)}</td>
+  <td class="c pin pin-l36 pw48">${carBadge(o.car, o.mfr)}</td>
   <td class="team-text pin pin-l84 pin-last">${teamLink(o.team)}${coalMark(o.team)}</td>
   <td>${mfrBadge(o.mfr)}</td>
-  <td class="team-text">${o.drivers.sort().map(driverLink).join(' · ')}</td>
-  <td class="r muted">${o.top5.join(' · ') || '—'}</td>
+  <td class="team-text hide-sm">${o.drivers.sort().map(driverLink).join(' · ')}</td>
+  <td class="r muted hide-sm">${o.top5.join(' · ') || '—'}</td>
   <td class="r"><strong>${o.total}</strong></td>
 </tr>`;
   }

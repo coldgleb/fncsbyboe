@@ -17,10 +17,10 @@ function driverTooltip(s) {
 const roundsOf = type => (/quals/i.test(type) ? state.quals : state.races).rounds
   .filter(r => !SPRINT_ROUNDS.has(r));
 
-/* Реальный Чейз (очки сброшены на сетку) — только после 26 этапа: до этого ручной
-   выбор «Чейз» не действует, сколько бы раз его ни включали на позднем срезе.
-   Отсечка топ-16 при этом остаётся на любом этапе. */
-const isChaseMode = (type, n) => n > CHASE_START && state.chaseView[type] !== 'regular';
+/* Реальный Чейз (очки сброшены на сетку): сам — после 26 этапа, по выбору «Чейз» — уже на
+   26-м (стартовая сетка Чейза). Раньше ручной выбор не действует. */
+const isChaseMode = (type, n) => (n > CHASE_START && state.chaseView[type] !== 'regular')
+  || (n === CHASE_START && state.chaseView[type] === 'chase');
 
 /* Срез зачёта на выбранный этап считает база (api.slice): места, «± Чейз», граница
    Чейза. Ответ кладём в state.slices — повторный показ той же таблицы мгновенный. */
@@ -55,7 +55,8 @@ function setUpTo(type, val) {
    этапа»: место, изменение, номер машины, гонщик, команда, производитель, очки, «± Чейз»,
    лучший результат с числом повторов и участия. Заголовки по клику сортируются только
    там, где сортировка есть (итоговая таблица передаёт свой sortTh). */
-function standingsTableHtml(rows, { prevRank = {}, at = Infinity, quals = false, sortTh = null, placeOf = null } = {}) {
+// carChase — таблица показывает Чейз: номера машин заливаются по Чейзу владельцев
+function standingsTableHtml(rows, { prevRank = {}, at = Infinity, quals = false, sortTh = null, placeOf = null, carChase = false } = {}) {
   const th = sortTh || ((key, label, attrs = '', cls = 'r') => `<th class="${cls}" ${attrs}>${label}</th>`);
   // участия считаем до выбранного этапа, иначе срез врёт про пропуски
   const starts = (kind, d) => [...(state.attendance[kind][d] || [])].filter(r => r <= at).length;
@@ -69,10 +70,10 @@ function standingsTableHtml(rows, { prevRank = {}, at = Infinity, quals = false,
     : `<strong${s.best === 1 ? ' class="win"' : ''}>P${s.best}</strong> <span class="muted">(x${s.bestCount ?? 1})</span>`;
 
   let html = `<div class="table-scroll"><table class="standings-table"><thead><tr>
-${th('rank', '#', '', 'r w-40 pin pin-l0 pw36')}
-<th class="r w-44 pin pin-l36 pw40" title="Изменение места к прошлому этапу">±</th>
-${th('car', '#', 'title="Номер машины по последней проведённой гонке"', 'r w-44 pin pin-l76 pw44')}
-${th('driver', 'Гонщик', '', 'pin pin-l120 pin-last')}
+${th('rank', '', 'title="Место"', 'r w-40 pin pin-l0 pw36')}
+<th class="r w-44 hide-sm" title="Изменение места к прошлому этапу">±</th>
+${th('car', '#', 'title="Номер машины по последней проведённой гонке"', 'c w-44 pin pin-l36 pw44')}
+${th('driver', 'Гонщик', '', 'pin pin-l80 pin-last')}
 ${th('team', 'Команда', '', '')}
 ${th('mfr', 'Авт.', '', '')}
 ${th('total', 'Очки')}
@@ -91,9 +92,9 @@ ${th('starts', 'Гонок / Квал.', 'title="Проходов в гонку 
     ].filter(Boolean).join(' ');
     html += `<tr class="${rc}" title="${driverTooltip(s)}">
   <td class="r pin pin-l0 pw36"><span class="pos-badge"${placeOf && place != null ? ` title="Место в зачёте: ${s.rank}"` : ''}>${place ?? '—'}</span></td>
-  <td class="r pin pin-l36 pw40">${s.isGuest ? '<span class="muted">—</span>' : deltaCell(prevRank[s.driver], s.rank)}</td>
-  <td class="r pin pin-l76 pw44">${carBadge(s.car, s.mfr)}</td>
-  <td class="pin pin-l120 pin-last"><strong>${driverLink(s.driver, quals ? 'quals' : null, s.driver.replace(' (i)', ''))}</strong></td>
+  <td class="r hide-sm">${s.isGuest ? '<span class="muted">—</span>' : deltaCell(prevRank[s.driver], s.rank)}</td>
+  <td class="c pin pin-l36 pw44${carCell(s.car, carChase)}">${carBadge(s.car, s.mfr)}</td>
+  <td class="pin pin-l80 pin-last"><strong>${driverLink(s.driver, quals ? 'quals' : null, s.driver.replace(' (i)', ''))}</strong></td>
   <td class="team-text">${teamLink(s.team)}${coalMark(s.team)}</td>
   <td>${mfrBadge(s.mfr)}</td>
   <td class="r">${s.isGuest
@@ -112,7 +113,6 @@ async function renderTable(type) {
   const rounds = roundsOf(type);
   const lastRound = rounds[rounds.length - 1];
   const at = state.upTo[type] ?? lastRound;
-  const isLast = at === lastRound;
 
   const cut = state.slices[sliceKey(type, at)];
   if (!cut) {
@@ -159,8 +159,7 @@ async function renderTable(type) {
       ${rounds.map(r => `<option value="${r}"${r === at ? ' selected' : ''}>${roundFullName(r)}</option>`).join('')}
     </select>
   </label>
-  ${isLast ? '' : '<span class="upto-note">срез сезона: Чейз и тай-брейки — на этот этап</span>'}
-  ${at > CHASE_START ? `
+  ${at >= CHASE_START ? `
   <div class="round-toggle inline">
     <button class="rtog-btn${!isChase ? ' rtog-active' : ''}" onclick="setChaseView('${type}','regular')"><span class="lbl-full">Регулярный сезон</span><span class="lbl-short">Сезон</span></button>
     <button class="rtog-btn${isChase ? ' rtog-active' : ''}" onclick="setChaseView('${type}','chase')">Чейз</button>
@@ -172,6 +171,7 @@ async function renderTable(type) {
 
   const html = (uptoContainer ? '' : uptoHtml)
     + standingsTableHtml(slice, {
+      carChase: isChase,
       prevRank, at, quals: /quals/i.test(type), sortTh,
       placeOf: sort ? (_, i) => sortPlaceOf[i] : null,
     })
@@ -258,7 +258,8 @@ function renderPivot(type) {
     pivotOf(type).then(() => renderPivot(type)).catch(err => console.error(err));
     return;
   }
-  const { map, rounds, order, qualMap, rankOf, totals } = state.pivotData[type];
+  const { map, rounds, order, qualMap, rankOf, totals, chase = [] } = state.pivotData[type];
+  const inChase = new Set(chase);
   const q = state.pivot[type];
   const drivers = order.filter(d => hit(q, d, teamOf(d)));
 
@@ -273,7 +274,7 @@ ${rounds.map(r => `<th title="${roundFullName(r)}">${roundLabel(r)}</th>`).join(
     const dmap = map[driver] || {};
     const qmap = qualMap ? (qualMap[driver] || {}) : null;
     const total = totals[driver] ?? 0;
-      html += `<tr class="${rank != null && rank <= 3 ? 'rank-' + rank : ''}">
+      html += `<tr class="${rank != null && rank <= 3 ? 'rank-' + rank : ''}${inChase.has(driver) ? ' row-playoff' : ''}">
   <td class="driver-cell"><span class="pos-badge">${rank ?? '—'}</span> ${driverLink(driver)}${coalMark(teamOf(driver))}</td>`;
     for (const r of rounds) {
       const pos = dmap[r];
@@ -374,6 +375,12 @@ const signed = v => (v > 0 ? '+' : '') + v;
 
 function renderGainPivot() {
   // тумблер «Скрыть подробные результаты»: остаются только итоговые столбцы
+  // на телефоне по умолчанию — только итоговые столбцы (тумблер включён)
+  if (state.gainBrief == null) {
+    state.gainBrief = matchMedia('(max-width: 700px)').matches;
+    const box = document.querySelector('.switch-label input');
+    if (box) box.checked = state.gainBrief;
+  }
   const rounds = state.gainBrief ? [] : state.races.rounds.filter(r => !SPRINT_ROUNDS.has(r));
   const list = state.gains.filter(g => hit(state.gainFilter, g.driver, g.team));
 

@@ -218,6 +218,12 @@ function penMark(t) {
 const MFR_MATCH = [[/^(toy|tyt)/i, 'Toyota'], [/^(chev|chv)/i, 'Chevy'], [/^(ford|frd)/i, 'Ford']];
 const mfrKey = mfr => MFR_MATCH.find(([re]) => re.test(mfr || ''))?.[1] || mfr;
 
+/* Ячейка номера в таблицах по участникам: когда таблица показывает Чейз (on — с 27 этапа,
+   а в итоговых зачётах и на 26-м при выборе «Чейз»), заливается по Чейзу владельцев —
+   независимо от строки (строка подсвечивается по Чейзу гонщиков) */
+const carCell = (car, on) => on
+  ? (state.ownerChase?.has(String(car)) ? ' car-chase' : ' car-plain') : '';
+
 // Номер машины пилота — в цветах из листа entries (bg/fg), без них — в цвете производителя
 function carBadge(car, mfr) {
   if (!car || car === '—' || car === '-') return '<span class="muted">—</span>';
@@ -255,10 +261,11 @@ function mfrBadge(mfr) {
 
 /* Спойлер общих зачётов: первые SHOW_ROWS строк, остальное — по кнопке.
    При поиске показываем все найденные — прятать совпадения незачем. */
-const spoilerRows = (key, rows, q) => q || state.showAll[key] ? rows : rows.slice(0, SHOW_ROWS);
+// limit — сколько строк видно до «Показать все» (по умолчанию SHOW_ROWS)
+const spoilerRows = (key, rows, q, limit = SHOW_ROWS) => q || state.showAll[key] ? rows : rows.slice(0, limit);
 
-function spoilerHtml(key, total) {
-  if (total <= SHOW_ROWS) return '';
+function spoilerHtml(key, total, limit = SHOW_ROWS) {
+  if (total <= limit) return '';
   return `<div class="pagination"><button class="page-btn" onclick="toggleShowAll('${key}')">`
     + `${state.showAll[key] ? 'Свернуть' : `Показать все (${total})`}</button></div>`;
 }
@@ -270,6 +277,7 @@ function toggleShowAll(key) {
     teamPivot: renderTeamPivot, teamPosPivot: renderTeamPosPivot,
     'pivot-races': () => renderPivot('races'), 'pivot-quals': () => renderPivot('quals'),
     'golub-races': () => renderGolub('races'), 'golub-quals': () => renderGolub('quals'),
+    funMfr: renderFun, funStreaks: renderFun,
   };
   (redraw[key] || (() => renderTable(key)))();
 }

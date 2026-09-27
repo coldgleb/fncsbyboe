@@ -14,14 +14,16 @@ function renderRoundTable(containerId, rows, cols) {
   html += '</tr></thead><tbody>';
 
   for (const r of rows) {
-    html += '<tr>';
+    // участник Чейза (этапы с 27-го) — зелёная подсветка строки
+    html += r.chase ? '<tr class="row-playoff">' : '<tr>';
     for (const col of cols) {
-      const { key, cls, fmt } = col;
+      const { key, cls, fmt, cellCls } = col;
       const v = r[key];
       const display = fmt ? fmt(v, r) : (v == null ? '—' : v);
       const highlight = isHighlighted(col, r);
-      const cellCls = [cls || '', highlight ? 'hl' : ''].filter(Boolean).join(' ');
-      html += `<td class="${cellCls}">${display}</td>`;
+      // cellCls — класс ячейки по строке (номер машины в Чейзе владельцев)
+      const tdCls = [cls || '', highlight ? 'hl' : '', cellCls ? cellCls(r).trim() : ''].filter(Boolean).join(' ');
+      html += `<td class="${tdCls}">${display}</td>`;
     }
     html += '</tr>';
   }
@@ -147,21 +149,21 @@ async function renderRoundMetric(roundNum) {
     ['Место машины у владельцев', m => m.ownerRank], ['Метрика', m => m.metric], ['Примечание', noteText],
   ] };
   const body = full.map((m, i) => [i + 1, m]).filter(([, m]) => roundHit(m.driver, m.team, m.car))
-    .map(([place, m]) => `<tr class="${place <= 3 ? 'rank-' + place : ''}">
+    .map(([place, m]) => `<tr class="${place <= 3 ? 'rank-' + place : ''}${m.chase ? ' row-playoff' : ''}">
   <td class="r"><span class="pos-badge">${place}</span></td>
   <td><strong>${driverLink(m.driver)}</strong></td>
-  <td class="team-text">${teamLink(m.team)}${coalMark(m.team)}</td>
-  <td>${carBadge(m.car, state.carOf?.[m.driver]?.mfr)}${m.carNote ? ` <span class="hl coal-mark" title="${escAttr(noteText(m))}">*</span>` : ''}</td>
-  <td class="r">${m.pos ?? `<span class="muted" title="Не прошёл квалификацию или не подавал прогноз — место ${m.place}">${m.place}</span>`}</td>
-  <td class="r">${m.champRank}</td>
-  <td class="r">${m.ownerRank}</td>
+  <td class="team-text hide-sm">${teamLink(m.team)}${coalMark(m.team)}</td>
+  <td class="c${carCell(m.car, roundNum > CHASE_START)}">${carBadge(m.car, state.carOf?.[m.driver]?.mfr)}${m.carNote ? ` <span class="hl coal-mark" title="${escAttr(noteText(m))}">*</span>` : ''}</td>
+  <td class="r hide-sm">${m.pos ?? `<span class="muted" title="Не прошёл квалификацию или не подавал прогноз — место ${m.place}">${m.place}</span>`}</td>
+  <td class="r hide-sm">${m.champRank}</td>
+  <td class="r hide-sm">${m.ownerRank}</td>
   <td class="r"><strong>${Number(m.metric).toFixed(2)}</strong></td>
 </tr>`).join('');
   document.getElementById('round-table').innerHTML = `<div class="table-scroll"><table class="standings-table" data-sort="auto"><thead><tr>
-  <th class="r w-36">#</th><th>Участник</th><th>Команда</th><th>Номер</th>
-  <th class="r" title="Не прошедшие квалификацию и не подававшие прогноз — место ${field + 1}">Место в гонке</th>
-  <th class="r" title="Место в личном зачёте после этапа (п. 8.8.2–8.8.3)">Место в чемпионате</th>
-  <th class="r" title="Место машины в зачёте владельцев после этапа">Место машины у владельцев</th>
+  <th class="r w-36"></th><th>Участник</th><th class="hide-sm">Команда</th><th class="c">Номер</th>
+  <th class="r hide-sm" title="Не прошедшие квалификацию и не подававшие прогноз — место ${field + 1}">Место в гонке</th>
+  <th class="r hide-sm" title="Место в личном зачёте после этапа (п. 8.8.2–8.8.3)">Место в чемпионате</th>
+  <th class="r hide-sm" title="Место машины в зачёте владельцев после этапа">Место машины у владельцев</th>
   <th class="r" title="50% места в гонке + 25% места в чемпионате + 25% места машины у владельцев; меньше — лучше">Метрика</th>
 </tr></thead><tbody>${body}</tbody></table></div>`;
 }
@@ -179,7 +181,7 @@ async function renderRoundStandings(kind, roundNum) {
       ['Лучший', s => (s.best == null ? '' : 'P' + s.best)], ['Раз', s => s.bestCount || ''],
     ] };
     document.getElementById('round-table').innerHTML =
-      standingsTableHtml(full.filter(s => roundHit(s.driver, s.team)), { prevRank: cut.prevRank, at: roundNum });
+      standingsTableHtml(full.filter(s => roundHit(s.driver, s.team)), { prevRank: cut.prevRank, at: roundNum, carChase: roundNum > CHASE_START });
     return;
   }
 
@@ -193,36 +195,36 @@ async function renderRoundStandings(kind, roundNum) {
       ['#', t => t.rank], ['Команда', t => t.team],
       ['Пилоты', t => roster(t).map(x => x.driver).join(' · ')], ['Очки', t => t.total],
     ] };
-    head = '<th>Команда</th><th title="Кто выступал за команду на этом этапе и раньше">Пилоты</th>'
+    head = '<th>Команда</th><th class="hide-sm" title="Кто выступал за команду на этом этапе и раньше">Пилоты</th>'
       + '<th class="r">Очки</th>';
     body = full.filter(t => roundHit(t.team, ...t.drivers))
       .map(t => [t.rank, deltaCell(prevPos[t.team], t.rank),
     `<td><strong>${teamLink(t.team)}</strong>${coalMark(t.team)}</td>
-   <td class="team-text">${roster(t).map(x => `${driverLink(x.driver)} ${mfrBadge(x.mfr)}`).join(' · ') || '—'}</td>
+   <td class="team-text hide-sm">${roster(t).map(x => driverLink(x.driver)).join(' · ') || '—'}</td>
    <td class="r" title="${scorersTooltip(t)}">${penMark(t)}<strong>${t.total}</strong></td>`]);
   } else if (kind === 'st-owners') {
     roundExport = { rows: full, filename: roundExportName(roundNum), cols: [
       ['#', o => o.rank], ['Номер', o => o.car], ['Команда', o => o.team], ['Авт.', o => o.mfr],
       ['Пилоты', o => o.drivers.join(' · ')], ['Очки', o => o.total],
     ] };
-    head = '<th class="r">Номер</th><th>Команда</th><th>Авт.</th><th>Пилоты</th><th class="r">Очки</th>';
+    head = '<th class="c">Номер</th><th>Команда</th><th>Авт.</th><th class="hide-sm">Пилоты</th><th class="r">Очки</th>';
     body = full.filter(o => roundHit(o.car, ...o.drivers))
       .map(o => [o.rank, deltaCell(prevPos[o.car], o.rank),
-    `<td class="r">${carBadge(o.car, o.mfr)}</td>
+    `<td class="c">${carBadge(o.car, o.mfr)}</td>
    <td class="team-text">${teamLink(o.team)}${coalMark(o.team)}</td>
    <td>${mfrBadge(o.mfr)}</td>
-   <td class="team-text">${[...o.drivers].sort().map(driverLink).join(' · ')}</td>
-   <td class="r"><strong>${o.total}</strong></td>`]);
+   <td class="team-text hide-sm">${[...o.drivers].sort().map(driverLink).join(' · ')}</td>
+   <td class="r"><strong>${o.total}</strong></td>`, o.chaseSeed != null ? 'row-playoff' : '']);
   } else {
     roundExport = { rows: full, filename: roundExportName(roundNum), cols: [
       ['#', s => s.rank], ['Номер', s => s.car], ['Гонщик', s => s.driver], ['Команда', s => s.team],
       ['Авт.', s => s.mfr], ['Победы', s => s.wins], ['Очки', s => s.total],
     ] };
-    head = '<th class="r">Номер</th><th class="sticky-col">Гонщик</th><th>Команда</th><th>Авт.</th>'
+    head = '<th class="c">Номер</th><th class="sticky-col">Гонщик</th><th>Команда</th><th>Авт.</th>'
       + '<th class="r">Победы</th><th class="r">Очки</th>';
     body = full.filter(s => roundHit(s.driver, s.team))
       .map(s => [s.rank, deltaCell(prevPos[s.driver], s.rank),
-    `<td class="r">${carBadge(s.car, s.mfr)}</td>
+    `<td class="c">${carBadge(s.car, s.mfr)}</td>
    <td class="sticky-col"><strong>${driverLink(s.driver)}</strong></td>
    <td class="team-text">${teamLink(s.team)}${coalMark(s.team)}</td>
    <td>${mfrBadge(s.mfr)}</td>
@@ -231,12 +233,13 @@ async function renderRoundStandings(kind, roundNum) {
   }
 
   document.getElementById('round-table').innerHTML = `<div class="table-scroll"><table class="standings-table" data-sort="auto"><thead><tr>
-  <th class="r w-36">#</th>
-  <th class="r" title="Изменение позиции к прошлому этапу">±</th>${head}
+  <th class="r w-36"></th>
+  <th class="r hide-sm" title="Изменение позиции к прошлому этапу">±</th>${head}
 </tr></thead><tbody>` +
-    body.map(([rank, delta, cells]) => `<tr class="${rank != null && rank <= 3 ? 'rank-' + rank : ''}">
+    // cls — доп. класс строки: у владельцев в Чейзе (с 27 этапа) — row-playoff
+    body.map(([rank, delta, cells, cls = '']) => `<tr class="${rank != null && rank <= 3 ? 'rank-' + rank : ''} ${cls}">
   <td class="r"><span class="pos-badge">${rank ?? '—'}</span></td>
-  <td class="r">${delta}</td>${cells}
+  <td class="r hide-sm">${delta}</td>${cells}
 </tr>`).join('') +
     '</tbody></table></div>';
 }
@@ -273,14 +276,15 @@ async function onRoundChange() {
     : `<span class="pos-badge ${r.made ? 'made' : 'missed'}">${v}</span>`;
   const pointsCol = { key: 'Points', label: 'Очки', cls: 'r', fmt: v => `<strong>${v ?? '—'}</strong>`, hl: true };
   const nascarCol = { key: 'nascar', label: 'NASCAR', cls: 'r', fmt: v => `<strong class="nascar-pts">${v}</strong>` };
-  const drCols = ['DR1', 'DR2', 'DR3', 'DR4'].map(k => ({ key: k, label: k, cls: 'r', fmt: v => v ?? '—', hl: true }));
+  // на телефоне в протоколе остаются Поз. · # · Пилот · Команда · Очки · NASCAR (hide-sm — в style.css)
+  const drCols = ['DR1', 'DR2', 'DR3', 'DR4'].map(k => ({ key: k, label: k, cls: 'r hide-sm', fmt: v => v ?? '—', hl: true }));
   const baseCols = [
-    { key: '#', label: '#', cls: 'r', fmt: (v, r) => carBadge(v, r['M.']) },
+    { key: '#', label: '#', cls: 'c', cellCls: r => carCell(r['#'], roundNum > CHASE_START), fmt: (v, r) => carBadge(v, r['M.']) },
     // гостевая заявка пилота, у которого есть и свои, — «(i)» в имени у него нет, ставим метку
     { key: 'Driver', label: 'Пилот', cls: 'sticky-col', fmt: (v, r) => `<strong>${driverLink(v)}</strong>`
       + (r.guest && !v.includes('(i)') ? ' <span class="guest-mark" title="Гостевая заявка">(i)</span>' : '') },
     { key: 'Team', label: 'Команда', fmt: v => `<span class="team-text">${teamLink(v)}${coalMark(v)}</span>` },
-    { key: 'M.', label: 'Авт.', fmt: v => mfrBadge(v) },
+    { key: 'M.', label: 'Авт.', cls: 'hide-sm', fmt: v => mfrBadge(v) },
   ];
 
   let cols;
@@ -288,13 +292,13 @@ async function onRoundChange() {
     title.textContent = `Гонка — ${name}`;
     cols = [
       { key: 'Pos.', label: 'Поз.', cls: 'r', fmt: v => v == null ? DQ_MARK : `<span class="pos-badge">${v}</span>`, hl: true },
-      { key: 'delta', label: '±', cls: 'r', fmt: v => v == null ? '<span class="muted">—</span>'
+      { key: 'delta', label: '±', cls: 'r hide-sm', fmt: v => v == null ? '<span class="muted">—</span>'
           : v === 0 ? '<span class="muted">0</span>'
             : `<span class="${v > 0 ? 'up' : 'down'}">${v > 0 ? '+' : ''}${v}</span>` },
       ...baseCols,
-      { key: 'QL', label: 'QL', cls: 'r', fmt: v => v ?? '—', hl: true },
+      { key: 'QL', label: 'QL', cls: 'r hide-sm', fmt: v => v ?? '—', hl: true },
       ...drCols,
-      ...['CAU', 'RET', 'MN'].map(k => ({ key: k, label: k, cls: 'r', fmt: v => v ?? '—', hl: true })),
+      ...['CAU', 'RET', 'MN'].map(k => ({ key: k, label: k, cls: 'r hide-sm', fmt: v => v ?? '—', hl: true })),
       pointsCol, nascarCol,
     ];
   } else {
@@ -312,5 +316,9 @@ function initRoundView() {
   const options = (state.protocolRounds || [])
     .map(n => `<option value="${n}">${state.roundNames[String(n)] || n}</option>`);
   sel.innerHTML = options.join('');
+  // по умолчанию — последний проведённый этап (последняя гонка; гонок нет — последний протокол)
+  const lastRace = state.races.rounds.filter(r => !SPRINT_ROUNDS.has(r)).pop();
+  sel.value = String(lastRace ?? state.protocolRounds?.at(-1) ?? '');
+  if (!sel.value && options.length) sel.selectedIndex = 0;
   if (options.length) onRoundChange();
 }

@@ -59,6 +59,7 @@ function applyMain(m) {
   state.teamOf = m.teamOf;
   state.carOf = m.carOf || {};
   state.carColors = m.carColors || {};
+  state.ownerChase = new Set(m.ownerChase || []);
   state.roundMaxPos = m.roundMaxPos;
   state.attendance = { races: setsOf(m.attendance.races), quals: setsOf(m.attendance.quals) };
   state.qualsParticipation = setsOf(m.qualsParticipation);
@@ -73,6 +74,7 @@ async function load(fresh) {
   tabReady = {};
   state.slices = {};
   state.pivotData = null;
+  state.fun = null;
 
   applyMain(await rpc('season_summary', season(), fresh));
   renderKPI();
@@ -140,6 +142,11 @@ async function ensureTab(tab, fresh = state.fresh) {
       return;
     }
 
+    if (tab === 'fun') {
+      await renderFun();
+      return;
+    }
+
     if (tab === 'calc') {
       if (typeof calcLoadSheets === 'function') calcLoadSheets();
       return;
@@ -166,11 +173,11 @@ async function renderTop5() {
     return `<div class="table-card top5-card">
   <div class="table-header"><h3><span class="driver-link" title="Открыть протокол этапа" onclick="goToRound(${round}, '${view}')">${title} · ${roundFullName(round)}</span></h3></div>
   <div class="table-scroll"><table class="standings-table top5"><thead><tr>
-    <th class="r w-40">#</th><th class="r w-44">№</th><th>Участник</th><th>Команда</th>
+    <th class="r w-40"></th><th class="c w-44">#</th><th>Участник</th><th>Команда</th>
     <th class="r" title="Очки за прогноз${metric ? ' — квала по метрике: меньше лучше' : ''}">Очки${metric ? ' <span class="metric-mark">(m)</span>' : ''}</th>
-  </tr></thead><tbody>${top.map(r => `<tr class="${r['Pos.'] <= 3 ? 'rank-' + r['Pos.'] : ''}">
+  </tr></thead><tbody>${top.map(r => `<tr class="${r['Pos.'] <= 3 ? 'rank-' + r['Pos.'] : ''}${r.chase ? ' row-playoff' : ''}">
     <td class="r"><span class="pos-badge">${r['Pos.']}</span></td>
-    <td class="r">${carBadge(r['#'], r['M.'])}</td>
+    <td class="c${carCell(r['#'], round > CHASE_START)}">${carBadge(r['#'], r['M.'])}</td>
     <td><strong>${driverLink(r['Driver'])}</strong></td>
     <td class="team-text">${teamLink(r['Team'])}${coalMark(r['Team'])}</td>
     <td class="r"><strong>${r['Points'] ?? '—'}</strong></td></tr>`).join('')}</tbody></table></div>
