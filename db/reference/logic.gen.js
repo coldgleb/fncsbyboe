@@ -401,11 +401,11 @@ function computeOwnerStandings(rows) {
       o.positions.push(pos);
     }
   }
-  return Object.values(map).sort(standingsCmp)
-    .map(({ lastRound, ...o }, i) => ({
-      ...o, rank: i + 1, drivers: [...o.drivers],
+  return sharedOwnerRanks(Object.values(map).sort(standingsCmp)
+    .map(({ lastRound, ...o }) => ({
+      ...o, drivers: [...o.drivers],
       top5: o.positions.sort((a, b) => a - b).slice(0, 5)
-    }));
+    })));
 }
 
 /* ── Зачёт им. Semen GOLUBOCHKIN: точка отсчёта — его позиция на этапе.
@@ -456,7 +456,7 @@ function computeChaseStandings(rows) {
   }).sort((a, b) => standingsCmp(
     { ...(a.chase || a), total: a.total }, { ...(b.chase || b), total: b.total }));
 
-  return renumber(merged);
+  return sharedOwnerRanks(merged);
 }
 
 // standings — зачёт, по которому определяется топ-16 (по очкам НА ВЫБРАННЫЙ этап,
@@ -483,6 +483,14 @@ function chaseOwnerSeedOrder(standingsAt26) {
   return seeds;
 }
 
+/* Места у владельцев: равные очки делят место, следующее — с пропуском номера (1-2-2-4).
+   Порядок строк внутри равных — по тай-брейкам (standingsCmp). */
+function sharedOwnerRanks(list) {
+  const out = [];
+  list.forEach((o, i) => out.push({ ...o, rank: i && o.total === list[i - 1].total ? out[i - 1].rank : i + 1 }));
+  return out;
+}
+
 function computeChaseOwnerStandings(rows) {
   const seeds = chaseOwnerSeedOrder(computeOwnerStandings(rows.filter(r => r['Round'] <= CHASE_START)));
   const base = computeOwnerStandings(rows);
@@ -498,7 +506,7 @@ function computeChaseOwnerStandings(rows) {
   }).sort((a, b) => standingsCmp(
     { ...(a.chase || a), total: a.total }, { ...(b.chase || b), total: b.total }));
 
-  return renumber(merged);
+  return sharedOwnerRanks(merged);
 }
 
 /* П. 8.8.2–8.8.3: место в чемпионате для метрики. Зачётные — своё место, гости и не выходившие

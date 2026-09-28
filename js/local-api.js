@@ -378,6 +378,9 @@ function roundProtocol(s, round, view) {
   })();
   const maxes = { QL: max('QL'), DR3: max('DR3'), DR4: max('DR4'), CAU: max('CAU'), RET: max('RET'), MN: max('MN') };
   const isRace = view === 'race';
+  // размер стартового поля последней проведённой гонки (Open — 50, Star — 40)
+  const lastRace = st.races.rounds.filter(r => r > 0 && !L.SPRINT_ROUNDS.has(r) && r <= n).pop();
+  const expectedField = st.roundMaxPos[lastRace] || 40;
   // с 27 этапа подсвечиваем участников Чейза: в гонке — Чейза гонок, в квале — Чейза квал
   const chase = n > L.CHASE_START && (isRace || view === 'qual') ? chaseSet(st, isRace ? 'races' : 'quals') : null;
 
@@ -392,7 +395,9 @@ function roundProtocol(s, round, view) {
     if (eq('Points', ptsBest)) hl.push('Points');
 
     const made = isRace ? null
-      : view === 'qual' ? (n === 1 ? duelDrivers.has(r['Driver']) : raceDrivers.has(r['Driver']))
+      : view === 'qual' ? (n === 1 ? duelDrivers.has(r['Driver'])
+        // гонки этапа ещё нет — проходят первые по размеру поля последней проведённой гонки
+        : raceDrivers.size ? raceDrivers.has(r['Driver']) : r['Pos.'] != null && r['Pos.'] <= expectedField)
         : raceDrivers.has(r['Driver']);
     // поле квалы бывает больше поля гонки: позиция в квале не дальше последнего стартовавшего
     const qp = qualPos[r['Driver']];
@@ -469,19 +474,23 @@ function roundMetric(s, round) {
   }
   const posOf = Object.fromEntries(st.races.rows
     .filter(r => parseFloat(r['Round']) === n && r['Pos.'] != null).map(r => [r['Driver'], r['Pos.']]));
+  // не прошёл в гонку: подавал прогноз на квалу этапа — поле этапа + 1 (Open 51, Star 41),
+  // не подавал вовсе — число подавших + 1
+  const submitted = new Set(st.quals.rows.filter(r => r['Round'] === n && r['Driver']).map(r => r['Driver']));
+  const noStart = d => submitted.has(d) ? field + 1 : submitted.size + 1;
 
   const list = L.computeNextMetric(Object.keys(champ).map(driver => {
     const { car = '—', team = '—' } = last[driver] || {};
     const pos = posOf[driver] ?? null;
     const other = lastOfCar[car]?.driver;
     return {
-      driver, team, car, pos, place: pos ?? field + 1, champRank: champ[driver],
+      driver, team, car, pos, place: pos ?? noStart(driver), champRank: champ[driver],
       ownerRank: ownerRank[car] ?? owners.length + 1, carNote: other && other !== driver ? other : null,
     };
   }));
   // с 27 этапа — участники Чейза по личному зачёту гонок
   const chase = n > L.CHASE_START ? chaseSet(st, 'races') : null;
-  return { field, rows: chase ? list.map(m => ({ ...m, chase: chase.has(m.driver) })) : list };
+  return { field, noStartMax: submitted.size + 1, rows: chase ? list.map(m => ({ ...m, chase: chase.has(m.driver) })) : list };
 }
 
 /* ── Карточки ── */
@@ -578,7 +587,11 @@ function carCard(s, car) {
 /* ── Head-to-head: два пилота или две команды ──
    Счёт «кто выше» — только по этапам, где место есть у обоих (DQ и пропуски не в счёт).
    Дуэли и этап 0 (The Clash) не учитываются, как и в остальной статистике. */
-function h2hDrivers(s, a, b) {
+// metric === false — квалификации по метрике в сравнении не учитываются
+const h2hQualRows = (st, metric) => metric === false
+  ? st.quals.rows.filter(r => !st.metricQuals.has(r['Round'])) : st.quals.rows;
+
+function h2hDrivers(s, a, b, metric) {
   const { L, st } = s;
   withCharts(s);
   // лучшее место пилота на этапе, очки за прогноз (Points) и зачётные NASCAR, гостевая заявка
@@ -594,7 +607,8 @@ function h2hDrivers(s, a, b) {
     return m;
   };
   const ra = byRound(st.races.rows, a), rb = byRound(st.races.rows, b);
-  const qa = byRound(st.quals.rows, a), qb = byRound(st.quals.rows, b);
+  const qrows = h2hQualRows(st, metric);
+  const qa = byRound(qrows, a), qb = byRound(qrows, b);
   const score = (x, y) => {
     const out = { a: 0, b: 0 };
     for (const r in x) {
@@ -608,7 +622,7 @@ function h2hDrivers(s, a, b) {
   return {
     races: score(ra, rb), quals: score(qa, qb),
     // квалы по метрике: прогнозные очки там «меньше — лучше»
-    metric: [...st.metricQuals],
+    metric: metric === false ? [] : [...st.metricQuals],
     rounds: rounds.map(r => ({
       round: r,
       a: { qual: qa[r] ?? null, race: ra[r] ?? null },
@@ -620,7 +634,7 @@ function h2hDrivers(s, a, b) {
 
 /* Команды: гонки — командный зачёт (два лучших результата за этап), квалификации — тот же
    расчёт на протоколах квал (только для сравнения здесь, официального зачёта у квал нет) */
-function h2hTeams(s, a, b) {
+function h2hTeams(s, a, b, metric) {
   const { L, st } = s;
   withTeams(s);
   withCharts(s);
@@ -651,7 +665,7 @@ function h2hTeams(s, a, b) {
   const ded = st.deductions;
   st.deductions = {};
   let qualTeams;
-  try { qualTeams = L.computeTeamStandings(st.quals.rows, true); } finally { st.deductions = ded; }
+  try { qualTeams = L.computeTeamStandings(h2hQualRows(st, metric), true); } finally { st.deductions = ded; }
   const quals = session(qualTeams);
   return {
     races, quals,
@@ -710,27 +724,67 @@ function funStats(s, session) {
   }).filter(x => x.len > 0).sort((a, b) => b.len - a.len || byStanding(driverRank, a.driver, b.driver));
 
   // 3. Подиумы / топ-5 / топ-10 — по пилотам и по командам заявки
-  const top = limit => {
+  /* Рейтинг «пилоты и команды»: value(r) — вклад строки (число; 0 — не в счёт).
+     Нулевых в списке нет; равные делят место, а стоят по месту в зачёте */
+  // src — строки для подсчёта (по умолчанию все)
+  const rate = (value, src = rows) => {
     const byDriver = {}, byTeam = {};
-    for (const r of rows) {
-      if (r['Pos.'] == null || r['Pos.'] > limit) continue;
-      byDriver[r['Driver']] = (byDriver[r['Driver']] || 0) + 1;
+    for (const r of src) {
+      const v = value(r);
+      if (!v) continue;
+      byDriver[r['Driver']] = (byDriver[r['Driver']] || 0) + v;
       const t = r['Team'];
-      if (t && t !== '—' && t !== 'Guest entry') byTeam[t] = (byTeam[t] || 0) + 1;
+      if (t && t !== '—' && t !== 'Guest entry') byTeam[t] = (byTeam[t] || 0) + v;
     }
-    // топ-10 по количеству; равные делят место, а стоят по месту в зачёте
     const rank = (m, ranks) => {
-      const list = Object.entries(m).map(([name, n]) => ({ name, n }))
+      const list = Object.entries(m).map(([name, n]) => ({ name, n: Math.round(n * 100) / 100 }))
+        .filter(x => x.n > 0)
         .sort((a, b) => b.n - a.n || byStanding(ranks, a.name, b.name));
       list.forEach((x, i) => { x.rank = i && x.n === list[i - 1].n ? list[i - 1].rank : i + 1; });
-      return list.slice(0, 10);
+      return list;
     };
     return { drivers: rank(byDriver, driverRank), teams: rank(byTeam, teamRank) };
   };
+  const top = limit => rate(r => r['Pos.'] != null && r['Pos.'] <= limit ? 1 : 0);
+
+  /* Допы гонки: CAU, RET, DUE (есть только в Star) и все вместе с MN. Только гонки на машинах,
+     заявленных на полное расписание (лист entries, период заявления фулл-тайма); сумма за сезон */
+  const fullTime = rows.filter(r => st.entries?.[r['Team']]?.[String(r['#'])]?.has(r['Round']));
+  const bonus = k => r => Number(r[k]) || 0;
+  const bonuses = session === 'qual' ? null : {
+    cau: rate(bonus('CAU'), fullTime), ret: rate(bonus('RET'), fullTime),
+    due: fullTime.some(r => r['DUE']) ? rate(bonus('DUE'), fullTime) : null,
+    all: rate(r => ['CAU', 'RET', 'DUE', 'MN'].reduce((sum, k) => sum + bonus(k)(r), 0), fullTime),
+  };
+
+  /* Командные этапы: очки команды за этап — сумма очков NASCAR двух зачётных результатов
+     (правило командного зачёта). В квалах — тот же расчёт на протоколах квал; штрафы
+     Deductions к результату этапа не относятся. */
+  const ded = st.deductions;
+  st.deductions = {};
+  let teamList;
+  try { teamList = L.computeTeamStandings(src, true); } finally { st.deductions = ded; }
+  const teamRounds = teamList.flatMap(t => Object.entries(t.roundPts).map(([rnd, pts]) => ({
+    team: t.team, round: Number(rnd), pts,
+    pos: (t.roundBest[rnd] || []).filter(x => x.pos != null).map(x => x.pos).sort((a, b) => a - b),
+  }))).filter(x => x.pts > 0 && x.round !== 0 && !L.SPRINT_ROUNDS.has(x.round));
+
+  // топ командных этапов сезона (одна команда может встречаться несколько раз); равные делят место
+  const teamBest = [...teamRounds].sort((a, b) => b.pts - a.pts || a.round - b.round || byStanding(teamRank, a.team, b.team)).slice(0, 30);
+  teamBest.forEach((x, i) => { x.rank = i && x.pts === teamBest[i - 1].pts ? teamBest[i - 1].rank : i + 1; });
+
+  // лучшая команда каждого этапа; при равных очках — та, чей лучший результат на этапе выше,
+  // затем второй результат, затем командный зачёт
+  const pos = (x, i) => x.pos[i] ?? Infinity;
+  const roundBestTeam = rounds.map(n => {
+    const best = teamRounds.filter(x => x.round === n).sort((a, b) => b.pts - a.pts
+      || pos(a, 0) - pos(b, 0) || pos(a, 1) - pos(b, 1) || byStanding(teamRank, a.team, b.team))[0];
+    return best && { round: n, pts: best.pts, teams: [{ team: best.team, pos: best.pos }] };
+  }).filter(Boolean);
 
   return {
-    rounds, manufacturers, streaks: rankStreaks(streaks).slice(0, 30),
-    wins: top(1), podium: top(3), top5: top(5), top10: top(10),
+    rounds, manufacturers, streaks: rankStreaks(streaks).slice(0, 30), teamBest, roundBestTeam,
+    wins: top(1), podium: top(3), top5: top(5), top10: top(10), bonuses,
   };
 }
 
@@ -863,7 +917,7 @@ const LOCAL_API = {
   team_card: (s, p) => teamCard(s, p.team),
   car_card: (s, p) => carCard(s, p.car),
   fun: (s, p) => funStats(s, p.session),
-  h2h: (s, p) => p.mode === 'teams' ? h2hTeams(s, p.a, p.b) : h2hDrivers(s, p.a, p.b),
+  h2h: (s, p) => p.mode === 'teams' ? h2hTeams(s, p.a, p.b, p.metric) : h2hDrivers(s, p.a, p.b, p.metric),
 };
 
 /* Вызов «функции данных»: имя и параметры те же, что у прежних функций базы.

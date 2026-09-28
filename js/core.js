@@ -279,7 +279,8 @@ function toggleShowAll(key) {
     'golub-races': () => renderGolub('races'), 'golub-quals': () => renderGolub('quals'),
     funMfr: renderFun, funStreaks: renderFun,
   };
-  (redraw[key] || (() => renderTable(key)))();
+  // спойлеры вкладки «Прочее» (fun*) перерисовывает она сама
+  (redraw[key] || (key.startsWith('fun') ? renderFun : () => renderTable(key)))();
 }
 
 /* ── Сортировка по клику на заголовок для любой таблицы с data-sort="auto" ──

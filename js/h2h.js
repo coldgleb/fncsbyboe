@@ -3,12 +3,34 @@
    пилотов — из уже загруженных зачётов, команд — из того же ответа. */
 
 let h2hMode = 'drivers';
+// учитывать ли квалификации по метрике (переключатель «Квалы по метрике»)
+let h2hMetric = true;
 
-// Списки для выбора: пилоты — из зачётов гонок и квалификаций, команды — из сводной
-function h2hOptions() {
-  if (h2hMode === 'teams') return (state.h2hTeams || []).map(t => t.team);
+function setH2hMetric(on) {
+  h2hMetric = on;
+  renderH2h();
+}
+
+/* Списки для выбора. Команды — по командному зачёту. Пилоты — группами по командам
+   (порядок команд — командный зачёт), внутри — по личному зачёту гонок, гости в конце;
+   пилоты без команды — последней группой. Возвращает [[подпись группы | null, [имена]]]. */
+function h2hGroups() {
+  const teams = state.h2hTeams || [];
+  const teamRank = Object.fromEntries(teams.map(t => [t.team, t.rank ?? Infinity]));
+  const byRank = rank => (a, b) => (rank[a] ?? Infinity) - (rank[b] ?? Infinity) || a.localeCompare(b, 'ru');
+  if (h2hMode === 'teams') return [[null, teams.map(t => t.team).sort(byRank(teamRank))]];
+
+  const driverRank = Object.fromEntries(state.races.standings.filter(s => s.rank != null).map(s => [s.driver, s.rank]));
   const names = new Set([...state.races.standings, ...state.quals.standings].map(s => s.driver));
-  return [...names].sort((a, b) => a.localeCompare(b, 'ru'));
+  const NO_TEAM = 'Без команды';
+  const groups = {};
+  for (const d of names) {
+    const t = teamOf(d);
+    (groups[t && t !== '—' && t !== 'Guest entry' ? t : NO_TEAM] ||= []).push(d);
+  }
+  const order = Object.keys(groups).sort((a, b) => (a === NO_TEAM) - (b === NO_TEAM) || byRank(teamRank)(a, b));
+  return order.map(t => [t, groups[t].sort((a, b) =>
+    isGuestDriver(a) - isGuestDriver(b) || byRank(driverRank)(a, b))]);
 }
 
 // По умолчанию — первые двое зачёта
@@ -20,12 +42,16 @@ function h2hDefaults() {
 }
 
 function fillH2hSelects() {
-  const opts = h2hOptions();
+  const groups = h2hGroups();
+  const opts = groups.flatMap(([, list]) => list);
   const [da, db] = h2hDefaults();
+  const esc = v => v.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
   for (const [id, def] of [['h2h-a', da], ['h2h-b', db]]) {
     const sel = document.getElementById(id);
     const keep = opts.includes(sel.value) ? sel.value : def;
-    sel.innerHTML = opts.map(o => `<option value="${o.replace(/"/g, '&quot;')}"${o === keep ? ' selected' : ''}>${o.replace(' (i)', '')}</option>`).join('');
+    const option = o => `<option value="${esc(o)}"${o === keep ? ' selected' : ''}>${esc(o.replace(' (i)', ''))}${isGuestDriver(o) ? ' (i)' : ''}</option>`;
+    sel.innerHTML = groups.map(([label, list]) => label == null ? list.map(option).join('')
+      : `<optgroup label="${esc(label)}">${list.map(option).join('')}</optgroup>`).join('');
   }
 }
 
@@ -95,7 +121,7 @@ async function renderH2h() {
   const body = document.getElementById('h2h-body');
   if (!a || !b) { body.innerHTML = '<div class="round-empty">Выберите двоих</div>'; return; }
   if (a === b) { body.innerHTML = '<div class="round-empty">Выберите разных</div>'; return; }
-  const d = await rpc('h2h', { season: state.year, division: state.division, mode: h2hMode, a, b }, state.fresh);
+  const d = await rpc('h2h', { season: state.year, division: state.division, mode: h2hMode, a, b, metric: h2hMetric }, state.fresh);
   const teams = h2hMode === 'teams';
 
   let blocks, head, rows, cols;

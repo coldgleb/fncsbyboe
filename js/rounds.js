@@ -140,7 +140,7 @@ const jsArg = s => s.replace(/'/g, "\\'").replace(/"/g, '&quot;');
 
 // П. 8.8: метрика участников на следующий этап — считает база (api.round_metric)
 async function renderRoundMetric(roundNum) {
-  const { field, rows: full } = await rpc('round_metric', roundArgs(roundNum), state.fresh);
+  const { field, noStartMax, rows: full } = await rpc('round_metric', roundArgs(roundNum), state.fresh);
   const noteText = m => m.carNote ? `Под этим номером позже выступал ${m.carNote} — мог не подать прогноз под этим номером` : '';
 
   roundExport = { rows: full, filename: roundExportName(roundNum), cols: [
@@ -154,14 +154,14 @@ async function renderRoundMetric(roundNum) {
   <td><strong>${driverLink(m.driver)}</strong></td>
   <td class="team-text hide-sm">${teamLink(m.team)}${coalMark(m.team)}</td>
   <td class="c${carCell(m.car, roundNum > CHASE_START)}">${carBadge(m.car, state.carOf?.[m.driver]?.mfr)}${m.carNote ? ` <span class="hl coal-mark" title="${escAttr(noteText(m))}">*</span>` : ''}</td>
-  <td class="r hide-sm">${m.pos ?? `<span class="muted" title="Не прошёл квалификацию или не подавал прогноз — место ${m.place}">${m.place}</span>`}</td>
+  <td class="r hide-sm">${m.pos ?? `<span class="muted" title="${m.place === field + 1 ? 'Подал прогноз, но не прошёл квалификацию' : 'Не подавал прогноз'} — место ${m.place}">${m.place}</span>`}</td>
   <td class="r hide-sm">${m.champRank}</td>
   <td class="r hide-sm">${m.ownerRank}</td>
   <td class="r"><strong>${Number(m.metric).toFixed(2)}</strong></td>
 </tr>`).join('');
   document.getElementById('round-table').innerHTML = `<div class="table-scroll"><table class="standings-table" data-sort="auto"><thead><tr>
   <th class="r w-36"></th><th>Участник</th><th class="hide-sm">Команда</th><th class="c">Номер</th>
-  <th class="r hide-sm" title="Не прошедшие квалификацию и не подававшие прогноз — место ${field + 1}">Место в гонке</th>
+  <th class="r hide-sm" title="Не прошедшие квалификацию — место ${field + 1}, не подававшие прогноз — ${noStartMax}">Место в гонке</th>
   <th class="r hide-sm" title="Место в личном зачёте после этапа (п. 8.8.2–8.8.3)">Место в чемпионате</th>
   <th class="r hide-sm" title="Место машины в зачёте владельцев после этапа">Место машины у владельцев</th>
   <th class="r" title="50% места в гонке + 25% места в чемпионате + 25% места машины у владельцев; меньше — лучше">Метрика</th>

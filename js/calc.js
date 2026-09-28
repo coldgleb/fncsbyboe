@@ -38,6 +38,7 @@ const DEFAULT={
   qualRoster:[], raceRoster:[], pointsByNum:{}, raceLists:{},
   cautionSegmentsRace:null, stageNumRace:null,
   weekendCautions:null, weekendRet:null,
+  fastestLap:null,                          // {raceId, num, time, lap} — быстрейший круг гонки, +1 очко
   sort:{key:null,dir:'desc'},               // сортировка таблицы по клику на заголовок; key null — исходный порядок
   team:'',                                  // выбранная команда — её пилоты подставлены в участники
   actualCaution:'', actualRet:'',           // shared actuals (auto from feed, editable)
@@ -205,14 +206,34 @@ function driverData(numv){
   const base=r||q||combinedRoster().find(d=>d.num===numv);
   if(!base){
     // ростер не загружен — показываем хотя бы номер машины, чтобы выбор не пропадал
-    return {num:numv,name:'#'+numv,mfg:null,qualPlace:null,racePlace:null,
-      points:(state.pointsByNum&&state.pointsByNum[numv]!=null)?state.pointsByNum[numv]:null,onTrack:null};
+    return {num:numv,name:'#'+numv,mfg:null,qualPlace:null,racePlace:null,points:racePoints(numv),onTrack:null};
   }
   return {num:numv,name:base.name,mfg:base.mfg,
     qualPlace:q?q.running:null,
     racePlace:r?r.running:null,
-    points:(state.pointsByNum&&state.pointsByNum[numv]!=null)?state.pointsByNum[numv]:null,
+    points:racePoints(numv),
     onTrack:r?r.onTrack:null};
+}
+// Очки машины за гонку: финиш + стейджи (weekend-feed) + 1 за быстрейший круг (live-фид гонки) —
+// так же считает NASCAR в points_earned
+function racePoints(numv){
+  const base=state.pointsByNum&&state.pointsByNum[numv];
+  if(base==null)return null;
+  const fl=state.fastestLap;
+  return base+(fl&&fl.raceId===state.raceId&&fl.num===numv?1:0);
+}
+/* Быстрейший круг гонки: в weekend-feed его нет, берём из live_feed.json этой гонки
+   (best_lap_time у каждой машины; фид должен быть именно гонкой — run_type 3 — этого race_id) */
+async function loadFastestLap(){
+  if(!state.raceId||!state.year||!state.series)return;
+  try{
+    const lf=JSON.parse(await fetchFeed(feedLinks(state.year,state.series,state.raceId).live));
+    if(String(lf.race_id)!==String(state.raceId)||lf.run_type!==3)return;
+    const best=(lf.vehicles||[]).filter(v=>v.best_lap_time>0).sort((a,b)=>a.best_lap_time-b.best_lap_time)[0];
+    if(!best)return;
+    state.fastestLap={raceId:state.raceId,num:String(best.vehicle_number),time:best.best_lap_time,lap:best.best_lap};
+    saveState(state);render();
+  }catch(e){ /* сеть или фид недоступны — считаем без бонуса, как раньше */ }
 }
 // auto actuals from race feed
 function autoCautions(){ if(state.weekendCautions!=null)return state.weekendCautions; if(state.cautionSegmentsRace!=null&&state.stageNumRace!=null) return state.cautionSegmentsRace-state.stageNumRace+1; return null; }
@@ -291,12 +312,29 @@ function el(t,a={},...k){const e=document.createElement(t);for(const x in a){if(
 
 // ===================== UI HELPERS =====================
 let openCombo=null;
+/* Выпадающий список — плавающий поверх страницы (position: fixed): внутри таблицы с прокруткой
+   вбок обычный список обрезается её рамкой, и у последних строк его почти не видно.
+   Снизу мало места — открываем вверх. При прокрутке и смене размера окна (клавиатура на
+   телефоне) список едет вслед за своим полем. */
+let openAnchor=null;
+function placeList(input,list){
+  openAnchor=input;
+  const r=input.getBoundingClientRect();
+  list.style.position='fixed';
+  list.style.left=r.left+'px';
+  list.style.minWidth=Math.max(200,r.width)+'px';
+  const h=Math.min(list.scrollHeight,220), below=innerHeight-r.bottom;
+  list.style.top=(below<h+8&&r.top>below?r.top-h-2:r.bottom+2)+'px';
+}
+const follow=()=>{if(openCombo&&openAnchor&&openCombo.style.display!=='none')placeList(openAnchor,openCombo);};
+addEventListener('scroll',follow,true);
+addEventListener('resize',follow);
 
 // compact driver combo: small input (#NUM lastName), dropdown on focus
 function driverComboCompact(pi,di,srow){
   const cur=state.participants[pi].drivers[di];
   const curD=cur?driverData(cur):null;
-  function shortName(d){if(!d)return '';const parts=(d.name||'').split(' ');return '#'+d.num+' '+(parts[parts.length-1]||'');}
+  function shortName(d){return d?'#'+d.num+' '+(d.name||''):'';}   // номер и полное имя
   const wrap=el('div',{class:'combo-c'});
   const input=el('input',{class:'cinput-c',placeholder:'—',
     value:shortName(curD),title:curD?curD.name:'',
@@ -314,6 +352,7 @@ function driverComboCompact(pi,di,srow){
     if(!items.length)list.appendChild(el('div',{class:'cempty'},'нет'));
     items.forEach(d=>list.appendChild(el('div',{class:'citem',onmousedown:ev=>{ev.preventDefault();pick(d);}},`#${d.num} ${d.name}`)));
     if(cur)list.insertBefore(el('div',{class:'citem clear',onmousedown:ev=>{ev.preventDefault();pick(null);}},'× очистить'),list.firstChild);
+    placeList(input,list);
   }
   input.addEventListener('blur',()=>{setTimeout(()=>{list.style.display='none';
     const d=cur?driverData(cur):null;input.value=shortName(d);input.title=d?d.name:'';},150);});
@@ -554,7 +593,7 @@ function importData(){
         if(state.raceId&&state.year&&state.series){
           const wurl=feedLinks(state.year,state.series,state.raceId).weekend;
           fetchFeed(wurl).then(wraw=>{
-            applyWeekendFeed(wraw); state.weekendRaw=wraw; saveState(state); render();
+            applyWeekendFeed(wraw); state.weekendRaw=wraw; saveState(state); render(); loadFastestLap();
           }).catch(()=>{});
         }
         // normalize participants (fill missing fields)
@@ -646,14 +685,18 @@ function renderSources(root){
       applyWeekendFeed(t);
       state.actualCaution='';state.actualRet='';
       saveState(state);render();
+      loadFastestLap();
       alert(`Загружено: пилотов ${state.raceRoster.length}, стейджей ${JSON.parse(t).weekend_race&&JSON.parse(t).weekend_race[0]&&(JSON.parse(t).weekend_race[0].stage_results||[]).length}`);
     }catch(e){btn.textContent=old;btn.disabled=false;alert('Ошибка загрузки: '+e.message);}
   }},'⤓ Загрузить weekend-feed');
-  src.appendChild(el('div',{class:'btnrow'},loadBtn));
+  const fl=state.fastestLap&&state.fastestLap.raceId===state.raceId?state.fastestLap:null;
+  src.appendChild(el('div',{class:'btnrow'},loadBtn,
+    el('span',{class:'sub',title:'Машина с быстрейшим кругом гонки получает +1 очко'},
+      fl?`Быстрейший круг: #${fl.num} — ${fl.time} с (круг ${fl.lap}), +1 очко`:'Быстрейший круг: нет данных (появится после гонки)')));
 
   // manual paste
   src.appendChild(el('label',{class:'flbl'},'Weekend Feed — вставить вручную'));
-  src.appendChild(el('textarea',{class:'ta',placeholder:'Скопируйте содержимое weekend-feed.json и вставьте сюда',oninput:e=>{state.weekendRaw=e.target.value;},onchange:e=>{state.weekendRaw=e.target.value;if(state.weekendRaw.trim()){try{applyWeekendFeed(state.weekendRaw);state.actualCaution='';state.actualRet='';saveState(state);render();}catch(err){alert('Ошибка: '+err.message);}}}},state.weekendRaw));
+  src.appendChild(el('textarea',{class:'ta',placeholder:'Скопируйте содержимое weekend-feed.json и вставьте сюда',oninput:e=>{state.weekendRaw=e.target.value;},onchange:e=>{state.weekendRaw=e.target.value;if(state.weekendRaw.trim()){try{applyWeekendFeed(state.weekendRaw);state.actualCaution='';state.actualRet='';saveState(state);render();loadFastestLap();}catch(err){alert('Ошибка: '+err.message);}}}},state.weekendRaw));
 
   // shared actual overrides
   const ov=el('div',{class:'params',style:'margin-top:10px;'});
@@ -727,6 +770,7 @@ function nameCombo(p){
     if(!items.length)list.appendChild(el('div',{class:'cempty'},Object.keys(drivers).length?'нет':'список загружается…'));
     items.forEach(n=>list.appendChild(el('div',{class:'citem',onmousedown:ev=>{ev.preventDefault();pick(n);}},
       n,el('span',{class:'cmeta-i'},[drivers[n].car&&' #'+drivers[n].car,drivers[n].team].filter(Boolean).join(' · ')))));
+    placeList(input,list);
   }
   // перерисовка — только если имя изменилось, иначе сбросит фокус с поля, куда перешли
   const initial=p.name;
@@ -875,6 +919,8 @@ async function switchCalc(kind,withSheets=true){
   if(!state.participants||!state.participants.length)state.participants=[newParticipant('Участник 1')];
   pendingRender=false;
   render();
+  // гонка уже загружена раньше, а быстрейшего круга ещё нет — догружаем
+  if(state.raceId&&!(state.fastestLap&&state.fastestLap.raceId===state.raceId))loadFastestLap();
 }
 // протоколы калькулятору нужны только когда вкладку открыли — их дёргает ensureTab
 window.calcLoadSheets=()=>{loadSheets(calcKind);if(pendingRender&&state){pendingRender=false;render();}};

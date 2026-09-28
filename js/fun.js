@@ -44,20 +44,47 @@ async function renderFun() {
       <td>${x.missed == null ? '<span class="muted">не было</span>' : roundLink(x.missed)}</td></tr>`).join(''))
     + spoilerHtml('funStreaks', d.streaks.length, 10);
 
+  // Лучшие командные этапы сезона: два зачётных места и их очки NASCAR
+  const posCells = (p, rnd) => p.map(x => `<span class="pos-cell ${posClass(x, state.roundMaxPos[rnd] || 40)}">${x}</span>`).join(' ');
+  const teamBest = table('<th class="r w-40"></th><th>Команда</th><th>Этап</th><th>Позиции</th><th class="r">Очки</th>',
+    spoilerRows('funTeamBest', d.teamBest, '', 10).map(x => `<tr${rankCls(x.rank)}><td class="r">${place(x.rank)}</td>
+      <td class="team-text"><strong>${teamLink(x.team)}</strong>${coalMark(x.team)}</td><td>${roundLink(x.round)}</td>
+      <td class="nowrap">${posCells(x.pos, x.round)}</td><td class="r"><strong>${x.pts}</strong></td></tr>`).join(''))
+    + spoilerHtml('funTeamBest', d.teamBest.length, 10);
+
+  // Лучшая команда каждого этапа (при равных очках — чей лучший результат выше)
+  const roundTeams = table('<th>Этап</th><th>Команда</th><th>Позиции</th><th class="r">Очки</th>',
+    spoilerRows('funRoundTeam', d.roundBestTeam, '', 10).map(x => `<tr><td>${roundLink(x.round)}</td>
+      <td class="team-text">${x.teams.map(t => `<strong>${teamLink(t.team)}</strong>${coalMark(t.team)}`).join('<br>')}</td>
+      <td class="nowrap">${x.teams.map(t => posCells(t.pos, x.round)).join('<br>')}</td><td class="r"><strong>${x.pts}</strong></td></tr>`).join(''))
+    + spoilerHtml('funRoundTeam', d.roundBestTeam.length, 10);
+
   // 3. Подиумы / топ-5 / топ-10: пилоты и команды рядом
-  const pair = t => `<div class="fun-pair">
-    ${table('<th class="r w-40"></th><th>Пилот</th><th class="r">К-во</th>', t.drivers.map(x =>
-      `<tr${rankCls(x.rank)}><td class="r">${place(x.rank)}</td><td><strong>${driverLink(x.name)}</strong></td><td class="r"><strong>${x.n}</strong></td></tr>`).join(''))}
-    ${table('<th class="r w-40"></th><th>Команда</th><th class="r">К-во</th>', t.teams.map(x =>
-      `<tr${rankCls(x.rank)}><td class="r">${place(x.rank)}</td><td class="team-text"><strong>${teamLink(x.name)}</strong>${coalMark(x.name)}</td><td class="r"><strong>${x.n}</strong></td></tr>`).join(''))}
+  // в каждой таблице видно 10 строк, остальные — под «Показать все» (key — свой у каждой таблицы)
+  const pair = (t, key, unitLabel = 'К-во') => `<div class="fun-pair">
+    <div>${table(`<th class="r w-40"></th><th>Пилот</th><th class="r">${unitLabel}</th>`, spoilerRows(`fun-${key}-d`, t.drivers, '', 10).map(x =>
+      `<tr${rankCls(x.rank)}><td class="r">${place(x.rank)}</td><td><strong>${driverLink(x.name)}</strong></td><td class="r"><strong>${x.n}</strong></td></tr>`).join(''))}${spoilerHtml(`fun-${key}-d`, t.drivers.length, 10)}</div>
+    <div>${table(`<th class="r w-40"></th><th>Команда</th><th class="r">${unitLabel}</th>`, spoilerRows(`fun-${key}-t`, t.teams, '', 10).map(x =>
+      `<tr${rankCls(x.rank)}><td class="r">${place(x.rank)}</td><td class="team-text"><strong>${teamLink(x.name)}</strong>${coalMark(x.name)}</td><td class="r"><strong>${x.n}</strong></td></tr>`).join(''))}${spoilerHtml(`fun-${key}-t`, t.teams.length, 10)}</div>
   </div>`;
+
+  // допы гонки — только во вкладке гонок; DUE — только там, где он есть (Star)
+  const bonusCards = b => !b ? '' : [
+    card('Жёлтые флаги', pair(b.cau, 'cau', 'Очки')),
+    card('Сходы', pair(b.ret, 'ret', 'Очки')),
+    b.due ? card('Дуэли', pair(b.due, 'due', 'Очки')) : '',
+    card('Дополнительные показатели', pair(b.all, 'bonus', 'Очки')),
+  ].join('');
 
   document.getElementById('fun-body').innerHTML = `<div class="fun-grid">
     ${card(`Зачёт производителей · ${unit}`, mfrTable + mfrPivot)}
     ${card('Текущая серия', streaks)}
-    ${card('Победы — 10 лучших', pair(d.wins))}
-    ${card('Подиумы — 10 лучших', pair(d.podium))}
-    ${card('Топ-5 — 10 лучших', pair(d.top5))}
-    ${card('Топ-10 — 10 лучших', pair(d.top10))}
+    ${card('Лучшие командные этапы сезона', teamBest)}
+    ${card('Лучшая команда этапа', roundTeams)}
+    ${card('Победы', pair(d.wins, 'wins'))}
+    ${card('Подиумы', pair(d.podium, 'podium'))}
+    ${card('Топ-5', pair(d.top5, 'top5'))}
+    ${card('Топ-10', pair(d.top10, 'top10'))}
+    ${bonusCards(d.bonuses)}
   </div>`;
 }
