@@ -295,17 +295,16 @@ function computeChaseStandings(rows) {
 
   const empty = { wins: 0, firstWin: Infinity, posCounts: {} };
   // Статистика (победы, финиши, топ-5/10, очки по этапам) — за весь сезон, как у всех.
-  // Меняются только total (сид + очки после 26 этапа) и тай-брейк: при равных очках
-  // в Чейзе решают результаты Чейза (chase), а не сезона
+  // Меняется только total (сид + очки после 26 этапа). При равных очках тай-брейк —
+  // по результатам всего сезона (победы, 2-е, 3-и … места), как в регулярном сезоне
   const merged = base.map(s => {
     const sd = seeds[s.driver];
     if (!sd) return s;
     const p = postMap[s.driver] || empty;
     return { ...s, total: sd.points + (p.total || 0), chaseSeed: sd.seed, chase: p };
-  }).sort((a, b) => standingsCmp(
-    { ...(a.chase || a), total: a.total }, { ...(b.chase || b), total: b.total }));
+  }).sort(standingsCmp);
 
-  return sharedOwnerRanks(merged);
+  return renumber(merged);
 }
 
 // standings — зачёт, по которому определяется топ-16 (по очкам НА ВЫБРАННЫЙ этап,
@@ -352,8 +351,7 @@ function computeChaseOwnerStandings(rows) {
     if (!sd) return o;
     const p = postMap[o.car] || empty;
     return { ...o, total: sd.points + (p.total || 0), chaseSeed: sd.seed, chase: p };
-  }).sort((a, b) => standingsCmp(
-    { ...(a.chase || a), total: a.total }, { ...(b.chase || b), total: b.total }));
+  }).sort(standingsCmp);
 
   return sharedOwnerRanks(merged);
 }

@@ -171,7 +171,7 @@ const row = (pos, pts, dr = 10) => ({ 'Pos.': pos, Points: pts, DR1: dr, Driver:
   assert.strictEqual(byDriver27.D18.total, 74, 'вне Чейза: сумма очков за все этапы, без сброса');
   assert.strictEqual(byDriver27.D1.wins, 1, 'Чейз: победа в регулярном сезоне остаётся в статистике');
   assert.strictEqual(byDriver27.D1.finishes, 2, 'Чейз: участие до Чейза учитывается');
-  assert.strictEqual(byDriver27.D1.chase.wins, 0, 'тай-брейк Чейза — только по его этапам');
+  assert.strictEqual(byDriver27.D1.chase.wins, 0, 'результаты Чейза хранятся отдельно (для подсказки)');
 }
 
 // Чейз владельцев: топ-16 машин сбрасываются на стартовую сетку после 26 этапа
@@ -197,6 +197,23 @@ const row = (pos, pts, dr = 10) => ({ 'Pos.': pos, Points: pts, DR1: dr, Driver:
   const byCar27 = Object.fromEntries(withR27.map(o => [o.car, o]));
   assert.strictEqual(byCar27['1'].total, 2132, 'Чейз: сид + очки за 27 этап');
   assert.strictEqual(byCar27['17'].total, 75, 'вне Чейза: сумма очков за все этапы, без сброса (20 + 55)');
+}
+
+// Места: у владельцев равные очки делят место (1-2-2-4), у пилотов — нет, решает тай-брейк
+{
+  const { computeChaseStandings, computeOwnerStandings } = new Function('state', 'isGuestDriver',
+    fs.readFileSync(__dirname + '/db/reference/standings.js', 'utf8') + '; return { computeChaseStandings, computeOwnerStandings };')({
+      quals: { rounds: [1, 2] }, qualsParticipation: {},
+    }, () => false);
+  // 19 пилотов на 1 этапе; 19-й добирает 1 очко на 2 этапе и сравнивается с 18-м (19 очков).
+  // Оба вне топ-16 Чейза, поэтому их очки не сбрасываются и равны
+  const rows = Array.from({ length: 19 }, (_, i) => ({ Round: 1, 'Pos.': i + 1, Driver: 'D' + (i + 1), '#': String(i + 1) }));
+  rows.push({ Round: 2, 'Pos.': 36, Driver: 'D19', '#': '19' });
+  const byDriver = Object.fromEntries(computeChaseStandings(rows).map(s => [s.driver, s]));
+  assert.strictEqual(byDriver.D18.total, byDriver.D19.total, 'у 18-го и 19-го поровну очков');
+  assert.notStrictEqual(byDriver.D18.rank, byDriver.D19.rank, 'пилоты с равными очками — разные места по тай-брейку');
+  const owners = computeOwnerStandings(rows.slice(0, 3).concat({ Round: 2, 'Pos.': 36, Driver: 'D3', '#': '3' })).map(o => o.rank);
+  assert.deepStrictEqual(owners, [1, 2, 2], 'владельцы с равными очками делят место');
 }
 
 // Метрика на следующий этап (п. 8.8): 50% гонка, 25% чемпионат, 25% машина у владельцев

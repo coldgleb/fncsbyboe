@@ -782,8 +782,20 @@ function funStats(s, session) {
     return best && { round: n, pts: best.pts, teams: [{ team: best.team, pos: best.pos }] };
   }).filter(Boolean);
 
+  /* Максимальный результат: этап, где у участника жёлтым (лучшим на этапе — та же подсветка hl,
+     что в протоколе) подсвечены все колонки прогноза: в гонке QL, DR1–DR4, CAU, RET, MN,
+     в квале DR1–DR4. Позиция и очки не в счёт. Гостевые заявки учитываются; квалы по метрике
+     (без DR) — нет. Считается количество таких этапов у пилотов и команд. */
+  const view = session === 'qual' ? 'qual' : 'race';
+  const maxKeys = view === 'race' ? ['QL', 'DR1', 'DR2', 'DR3', 'DR4', 'CAU', 'RET', 'MN'] : ['DR1', 'DR2', 'DR3', 'DR4'];
+  const maxRows = rounds.filter(n => !(view === 'qual' && st.metricQuals.has(n)))
+    .flatMap(n => roundProtocol(s, n, view).rows)
+    .filter(x => x['Driver'] && ['DR1', 'DR2', 'DR3', 'DR4'].every(k => x[k] != null)
+      && maxKeys.every(k => x[k] == null || x.hl?.includes(k)));
+  const maxResults = rate(() => 1, maxRows);
+
   return {
-    rounds, manufacturers, streaks: rankStreaks(streaks).slice(0, 30), teamBest, roundBestTeam,
+    rounds, manufacturers, streaks: rankStreaks(streaks).slice(0, 30), teamBest, roundBestTeam, maxResults,
     wins: top(1), podium: top(3), top5: top(5), top10: top(10), bonuses,
   };
 }

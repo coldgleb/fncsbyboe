@@ -79,6 +79,7 @@ async function renderFun() {
   document.getElementById('fun-body').innerHTML = `<div class="fun-grid">
     ${card(`Зачёт производителей · ${unit}`, mfrTable + mfrPivot)}
     ${card('Текущая серия', streaks)}
+    ${card('Максимальный результат', pair(d.maxResults, 'max'))}
     ${card('Лучшие командные этапы сезона', teamBest)}
     ${card('Лучшая команда этапа', roundTeams)}
     ${card('Победы', pair(d.wins, 'wins'))}
