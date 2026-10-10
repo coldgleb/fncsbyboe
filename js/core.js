@@ -494,6 +494,11 @@ function writeHash() {
   const parts = [`year=${state.year}`, `div=${state.division}`, `tab=${tab}`];
   const sel = document.getElementById('round-select');
   if (tab === 'rounds' && sel?.value) parts.push(`round=${sel.value}`, `view=${roundView}`);
+  // статистика: пилот или команда, имя и сессия — ссылка открывает ровно их
+  if (tab === 'stats' && typeof statsMode !== 'undefined' && statsPick[statsMode]) {
+    parts.push(`kind=${statsMode}`, `name=${encodeURIComponent(statsPick[statsMode])}`, `session=${statsSession}`);
+    if (statsSession === 'qual' && statsNoMetric) parts.push('nometric=1');
+  }
   // replaceState, а не pushState — иначе «назад» отматывает каждый клик по вкладке
   history.replaceState(null, '', '#' + parts.join('&'));
 }

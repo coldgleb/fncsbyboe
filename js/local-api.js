@@ -976,6 +976,10 @@ function statsCard(s, kind, name, session, noMetric) {
     const my = chasePts(name);
     chase = { playoff: !!me?.playoff, seed: me?.chaseSeed ?? null, rank: me?.rank ?? null, started: chaseRounds.length > 0,
       pts: my, ptsRank: me?.playoff ? field.filter(v => v > my).length + 1 : null, of: field.length };
+    // место по тем же очкам среди всех, кто ехал этапы Чейза (кроме гостей)
+    const everyone = [...new Set(srcAll.filter(r => chaseRounds.includes(r['Round']) && !L.isGuestDriver(r['Driver'])).map(r => r['Driver']))].map(chasePts);
+    chase.allRank = everyone.filter(v => v > my).length + 1;
+    chase.allOf = everyone.length;
   }
 
   // Напарники: пилот — против тех, кто ехал за ту же команду на том же этапе;

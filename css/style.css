@@ -127,7 +127,7 @@ h3 {
 }
 
 .wrap {
-  max-width: 1440px;
+  max-width: 1280px;
   margin: 0 auto;
   padding-inline: 20px;
 }
@@ -144,7 +144,7 @@ h3 {
 }
 
 /* кнопка ширины нужна только на широком экране */
-@media (max-width: 1480px) {
+@media (max-width: 1320px) {
   .wide-btn {
     display: none;
   }
@@ -322,7 +322,7 @@ h3 {
 }
 
 main {
-  max-width: 1440px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 24px 20px 48px;
 }
@@ -2350,6 +2350,24 @@ table[data-sort="auto"] th:hover {
 }
 
 /* ── Вкладка «Статистика» ── */
+.stats-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 4px 0 14px;
+}
+
+/* галочка — всегда у правого края, даже когда перенеслась под имя */
+.stats-head #stats-metric {
+  margin-left: auto;
+}
+
+.stats-head .stats-title {
+  margin: 0;
+}
+
 .stats-title {
   margin: 4px 0 14px;
   font: 800 20px var(--display);

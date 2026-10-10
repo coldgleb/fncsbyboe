@@ -7,7 +7,23 @@ let statsSession = 'race';
 let statsNoMetric = false;
 const statsPick = { driver: null, team: null };   // выбор помнится и при смене года/дивизиона
 
+// выбор из ссылки (#tab=stats&kind=team&name=…&session=qual&nometric=1)
+{
+  const p = new URLSearchParams(INITIAL_HASH.slice(1));
+  if (p.get('tab') === 'stats') {
+    if (p.get('kind') === 'team') statsMode = 'team';
+    if (p.get('name')) statsPick[statsMode] = p.get('name');
+    if (p.get('session') === 'qual') statsSession = 'qual';
+    statsNoMetric = p.get('nometric') === '1';
+  }
+}
+
 async function initStats() {
+  // переключатели — в состояние, взятое из ссылки
+  document.querySelectorAll('.rtog-btn[data-stats]').forEach(b => b.classList.toggle('rtog-active', b.dataset.stats === statsMode));
+  document.querySelectorAll('.rtog-btn[data-stats-s]').forEach(b => b.classList.toggle('rtog-active', b.dataset.statsS === statsSession));
+  document.getElementById('stats-metric').style.display = statsSession === 'qual' ? '' : 'none';
+  document.querySelector('#stats-metric input').checked = statsNoMetric;
   state.h2hTeams = await rpc('team_standings', { ...season(), upto: 1000, with_guest_only: true }, state.fresh);
   fillStatsSelect();
   await renderStats();
@@ -51,7 +67,7 @@ function pickStats(name) {
 async function renderStats() {
   const name = statsPick[statsMode];
   const body = document.getElementById('stats-body');
-  if (!name) { body.innerHTML = '<p class="muted">Нет данных</p>'; return; }
+  if (!name) { const m = document.getElementById('stats-metric'); body.innerHTML = '<div class="stats-head"><p class="muted">Нет данных</p></div>'; body.firstChild.append(m); return; }
   const req = { kind: statsMode, name, session: statsSession, noMetric: statsNoMetric };
   const d = await rpc('stats', { ...season(), ...req }, state.fresh);
   // пока считали, выбор сменился
@@ -126,8 +142,9 @@ async function renderStats() {
       ['В Чейзе', c.playoff ? 'да' : no],
       c.playoff && c.seed != null ? ['Место посева', `<strong>${c.seed}</strong>`] : null,
       ['Место в зачёте', c.rank ?? '—'],
-      c.playoff && c.started ? ['Очки за этапы Чейза', `<strong>${c.pts}</strong>`] : null,
+      c.started ? ['Очки за этапы Чейза', `<strong>${c.pts}</strong>`] : null,
       c.playoff && c.started ? ['Место среди пилотов Чейза', `<strong>${c.ptsRank}</strong> из ${c.of}`] : null,
+      c.started ? ['Место среди всех', `<strong>${c.allRank}</strong> из ${c.allOf}`] : null,
     ]),
     // состав — на всю ширину: пилоты в шапке, место и очки строками
     team ? `<div class="table-card stats-wide"><div class="table-header"><h3>Состав</h3>
@@ -146,5 +163,9 @@ async function renderStats() {
   ];
 
   const title = team ? `${teamLink(name)}${coalMark(name)}` : drv(name);
-  body.innerHTML = `<h2 class="stats-title">${title}</h2><div class="fun-grid">${cards.join('')}</div>`;
+  // галочка «без квал по метрике» живёт в строке с именем — переносим её туда при каждой отрисовке
+  const metric = document.getElementById('stats-metric');
+  body.innerHTML = `<div class="stats-head"><h2 class="stats-title">${title}</h2></div><div class="fun-grid">${cards.join('')}</div>`;
+  body.querySelector('.stats-head').append(metric);
+  writeHash();
 }
