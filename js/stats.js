@@ -118,7 +118,10 @@ async function renderStats() {
     card('Результативность', [
       [P1s, `${r.p1}${pct(r.p1, r.n)}`], [qual ? 'Топ-3' : 'Подиумы', `${r.p3}${pct(r.p3, r.n)}`],
       ['Топ-5', `${r.p5}${pct(r.p5, r.n)}`], ['Топ-10', `${r.p10}${pct(r.p10, r.n)}`],
-      ['Лучший этап по очкам NASCAR', r.bestPts ? `<strong>${r.bestPts.pts}</strong> · ${rl(r.bestPts.round)}${team && r.bestPts.drivers?.length ? '<br>' + r.bestPts.drivers.map(x => drv(x)).join('<br>') : ''}` : no],
+      // лучший этап: места, а не очки — у команды каждый зачётный пилот со своим местом
+      ['Лучший этап по очкам NASCAR', r.bestPts ? (team
+        ? `${rl(r.bestPts.round)}<br>${(r.bestPts.drivers || []).map(x => `P${x.pos} · ${drv(x.driver, x.car, x.mfr)}`).join('<br>')}`
+        : `${rl(r.bestPts.round)} · P${r.bestPts.pos}`) : no],
       ['Средние очки NASCAR за этап', fx(r.avgPts)],
       r.avgPtsRank ? ['Место по средним очкам', `<strong>${r.avgPtsRank.rank}</strong> из ${r.avgPtsRank.of}`] : null,
       ['Самая длинная серия топ-10', span(r.top10Streak.best)],

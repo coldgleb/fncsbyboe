@@ -904,9 +904,11 @@ function statsCard(s, kind, name, session, noMetric) {
   if (isTeam) {
     const t = teamList.find(x => x.team === name);
     ptsRounds = Object.entries(t?.roundPts || {}).map(([n, pts]) => ({ round: Number(n), pts,
-      drivers: (t.roundBest[n] || []).filter(x => x.pos != null).map(x => x.driver) })).filter(x => !skip(x.round));
+      // зачётные результаты этапа — строки протокола (место, номер машины)
+      drivers: (t.roundBest[n] || []).filter(x => x.pos != null).sort((a, b) => a.pos - b.pos)
+        .map(x => hit(rows.find(r => r['Round'] === Number(n) && r['Driver'] === x.driver && r['Pos.'] === x.pos))).filter(Boolean) })).filter(x => !skip(x.round));
   } else {
-    ptsRounds = placed(rows).map(r => ({ round: r['Round'], pts: L.scorePts(r['Pos.'], r['Round']) }));
+    ptsRounds = placed(rows).map(r => ({ round: r['Round'], pts: L.scorePts(r['Pos.'], r['Round']), pos: r['Pos.'] }));
   }
   const topPts = [...ptsRounds].sort((a, b) => b.pts - a.pts || a.round - b.round)[0] || null;
   // место по средним очкам NASCAR за этап — среди тех же команд / пилотов
