@@ -839,6 +839,185 @@ function teamCard(s, team) {
   return { team: t, rounds: rows, history: st.teamRankHistory[team] || {}, metric };
 }
 
+/* ── Статистика пилота или команды за сезон — по гонкам или по квалам (session).
+   Команда — по любому своему пилоту: строки всех, кто ехал за неё (гостевые заявки тоже).
+   Строка без места (DQ) — участие, не место. noMetric — без квал по метрике. ── */
+function statsCard(s, kind, name, session, noMetric) {
+  const { L, st } = s;
+  const isTeam = kind === 'team', isQual = session === 'qual';
+  const skip = n => n === 0 || L.SPRINT_ROUNDS.has(n) || (isQual && noMetric && st.metricQuals.has(n));
+  const srcAll = (isQual ? st.quals.rows : st.races.rows).filter(r => r['Driver'] && !skip(r['Round']));
+  const mine = r => isTeam ? r['Team'] === name : r['Driver'] === name;
+  const byRound = (a, b) => a['Round'] - b['Round'] || (a['Pos.'] ?? Infinity) - (b['Pos.'] ?? Infinity);
+  const rows = srcAll.filter(mine).sort(byRound);
+  const placed = list => list.filter(r => r['Pos.'] != null);
+  const hit = r => r && { round: r['Round'], driver: r['Driver'], pos: r['Pos.'], car: r['#'], mfr: r['M.'] };
+  const first = maxPos => hit(placed(rows).find(r => r['Pos.'] <= maxPos));
+  const held = (isQual ? st.quals.rounds : st.races.rounds).filter(n => !skip(n));
+
+  // первый ряд — у команды на одном этапе P1 и P2
+  const frontRow = () => {
+    const n = held.find(n => [1, 2].every(p => rows.some(r => r['Round'] === n && r['Pos.'] === p)));
+    return n == null ? null : { round: n, drivers: [1, 2].map(p => hit(rows.find(r => r['Round'] === n && r['Pos.'] === p))) };
+  };
+  const firsts = { p1: first(1), p3: first(3), p10: first(10), p20: first(20), frontRow: isTeam && isQual ? frontRow() : null };
+
+  // серия — подряд идущие проведённые этапы, где ok(этап) выполняется
+  const series = ok => {
+    let best = { len: 0 }, cur = { len: 0 };
+    for (const n of held) {
+      cur = ok(n) ? { len: cur.len + 1, from: cur.len ? cur.from : n, to: n } : { len: 0 };
+      if (cur.len > best.len) best = cur;
+    }
+    return { best, current: cur };
+  };
+  const myRounds = new Set(rows.map(r => r['Round']));
+  const qualRounds = new Set(st.quals.rows.filter(r => r['Driver'] && mine(r) && r['Round'] !== 0
+    && !L.SPRINT_ROUNDS.has(r['Round'])).map(r => r['Round']));
+  // команда: на этапе в серию топ-10 идёт её лучший результат
+  const bestPos = n => Math.min(...placed(rows).filter(r => r['Round'] === n).map(r => r['Pos.']));
+
+  const avgMed = list => {
+    const p = list.map(r => r['Pos.']).sort((a, b) => a - b), mid = p.length >> 1;
+    return p.length ? { avg: p.reduce((a, b) => a + b, 0) / p.length, median: p.length % 2 ? p[mid] : (p[mid - 1] + p[mid]) / 2 } : null;
+  };
+  const am = avgMed(placed(rows));
+  const bestPlace = am && Math.min(...placed(rows).map(r => r['Pos.']));
+  const pos = am && { best: bestPlace, bestList: placed(rows).filter(r => r['Pos.'] === bestPlace).map(hit), ...am };
+  /* место по среднему и по медиане (меньше — лучше): команды — среди всех команд,
+     пилоты — среди всех пилотов, кроме гостей */
+  const groupOf = r => isTeam ? (r['Team'] && r['Team'] !== '—' && r['Team'] !== 'Guest entry' ? r['Team'] : null)
+    : (L.isGuestDriver(r['Driver']) ? null : r['Driver']);
+  const groups = {};
+  for (const r of placed(srcAll)) { const g = groupOf(r); if (g) (groups[g] ||= []).push(r); }
+  if (pos) {
+    const list = Object.values(groups).map(avgMed);
+    pos.avgRank = list.filter(x => x.avg < am.avg).length + 1;
+    pos.medianRank = list.filter(x => x.median < am.median).length + 1;
+    pos.of = list.length;
+  }
+
+  /* Очки — NASCAR (55-35-34…), Points листа на разных этапах в разной шкале.
+     Пилот — за своё место; команда — очки команды за этап (два зачётных результата). */
+  const teamList = L.computeTeamStandings(srcAll, true);
+  let ptsRounds;
+  if (isTeam) {
+    const t = teamList.find(x => x.team === name);
+    ptsRounds = Object.entries(t?.roundPts || {}).map(([n, pts]) => ({ round: Number(n), pts,
+      drivers: (t.roundBest[n] || []).filter(x => x.pos != null).map(x => x.driver) })).filter(x => !skip(x.round));
+  } else {
+    ptsRounds = placed(rows).map(r => ({ round: r['Round'], pts: L.scorePts(r['Pos.'], r['Round']) }));
+  }
+  const topPts = [...ptsRounds].sort((a, b) => b.pts - a.pts || a.round - b.round)[0] || null;
+  // место по средним очкам NASCAR за этап — среди тех же команд / пилотов
+  const mean = list => list.length ? list.reduce((a, b) => a + b, 0) / list.length : null;
+  const myAvgPts = mean(ptsRounds.map(x => x.pts));
+  const avgPtsAll = isTeam
+    ? teamList.filter(t => groups[t.team]).map(t => mean(Object.entries(t.roundPts).filter(([n]) => !skip(Number(n))).map(([, v]) => v)))
+    : Object.values(groups).map(list => mean(list.map(r => L.scorePts(r['Pos.'], r['Round']))));
+  const avgPtsRank = myAvgPts == null ? null : { rank: avgPtsAll.filter(v => v > myAvgPts).length + 1, of: avgPtsAll.length };
+  const cnt = maxPos => placed(rows).filter(r => r['Pos.'] <= maxPos).length;
+
+  // Ход позиций в общем зачёте после каждого этапа
+  withCharts(s);
+  let hist;
+  if (!isTeam) hist = (isQual ? st.qualRankHistory : st.rankHistory)[name] || {};
+  else if (!isQual) hist = st.teamRankHistory[name] || {};
+  else {
+    hist = {};
+    for (const n of held) {
+      const r = L.computeTeamStandings(srcAll.filter(x => x['Round'] <= n)).find(x => x.team === name)?.rank;
+      if (r != null) hist[n] = r;
+    }
+  }
+  const path = Object.entries(hist).map(([n, rank]) => ({ round: Number(n), rank }))
+    .filter(x => x.rank != null && !skip(x.round)).sort((a, b) => a.round - b.round);
+  const pick = cmp => path.length ? path.reduce((a, b) => cmp(b.rank, a.rank) ? b : a) : null;
+  const standing = { path, best: pick((a, b) => a < b), worst: pick((a, b) => a > b), leader: path.filter(x => x.rank === 1).length };
+
+  // Чейз — как в зачёте сайта: playoff на последнем срезе своей сессии
+  const cur = sliceOf(s, isQual ? 'quals' : 'races').standings;
+  let chase;
+  if (isTeam) {
+    const full = cur.filter(x => x.team === name && !x.isGuest);
+    const inChase = full.filter(x => x.playoff);
+    // очки команды за этапы Чейза и место среди команд по ним
+    const chaseRounds = held.filter(n => n > L.CHASE_START);
+    const sum = t => chaseRounds.reduce((a, n) => a + (t.roundPts[n] || 0), 0);
+    const score = list => {
+      const pts = list.map(t => ({ team: t.team, pts: sum(t) }));
+      const my = pts.find(x => x.team === name)?.pts ?? 0;
+      return { pts: my, rank: pts.filter(x => x.pts > my).length + 1 };
+    };
+    // то же, но в зачёт команды идут только её пилоты, попавшие в Чейз
+    const playoff = new Set(cur.filter(x => x.playoff).map(x => x.driver));
+    // место — только среди команд, у которых есть пилоты в Чейзе (ехали за них в этапах Чейза)
+    const chaseRows = srcAll.filter(r => playoff.has(r['Driver']) && chaseRounds.includes(r['Round']));
+    const chaseTeams = new Set(chaseRows.map(r => r['Team']));
+    /* место — по среднему на одного пилота Чейза: все очки NASCAR её пилотов Чейза за этапы
+       Чейза делятся на их число (у команды с одним пилотом в Чейзе иначе меньше результатов) */
+    const avgOf = team => {
+      const list = chaseRows.filter(r => r['Team'] === team);
+      const n = new Set(list.map(r => r['Driver'])).size;
+      return n ? list.reduce((a, r) => a + L.scorePts(r['Pos.'], r['Round']), 0) / n : 0;
+    };
+    const avgs = [...chaseTeams].map(avgOf), myAvg = avgOf(name);
+    const onlyChase = { pts: score(L.computeTeamStandings(chaseRows, true)).pts, avg: myAvg,
+      rank: avgs.filter(v => v > myAvg).length + 1, teams: chaseTeams.size, inChase: chaseTeams.has(name) };
+    chase = { n: inChase.length, full: full.length, drivers: inChase.map(x => x.driver), started: chaseRounds.length > 0,
+      ...score(teamList), teams: teamList.length, onlyChase };
+  } else {
+    const me = cur.find(x => x.driver === name);
+    // очки NASCAR только за этапы Чейза и место по ним среди пилотов Чейза
+    const chaseRounds = held.filter(n => n > L.CHASE_START);
+    const chasePts = d => srcAll.filter(r => r['Driver'] === d && chaseRounds.includes(r['Round']))
+      .reduce((a, r) => a + L.scorePts(r['Pos.'], r['Round']), 0);
+    const field = cur.filter(x => x.playoff).map(x => chasePts(x.driver));
+    const my = chasePts(name);
+    chase = { playoff: !!me?.playoff, seed: me?.chaseSeed ?? null, rank: me?.rank ?? null, started: chaseRounds.length > 0,
+      pts: my, ptsRank: me?.playoff ? field.filter(v => v > my).length + 1 : null, of: field.length };
+  }
+
+  // Напарники: пилот — против тех, кто ехал за ту же команду на том же этапе;
+  // команда — лучший пилот по зачёту, сколько разных пилотов, доля гостевых заявок
+  let mates;
+  if (isTeam) {
+    // состав: все, кто ехал за команду, — место и очки в личном зачёте сессии
+    const byName = Object.fromEntries(cur.map(x => [x.driver, x]));
+    const last = {};
+    for (const r of rows) last[r['Driver']] = r;
+    const roster = Object.keys(last).map(d => ({ driver: d, car: last[d]['#'], mfr: last[d]['M.'],
+      rank: byName[d]?.rank ?? null, pts: byName[d]?.total ?? null, guest: !!byName[d]?.isGuest || L.isGuestDriver(d) }))
+      .sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.driver.localeCompare(b.driver));
+    mates = { roster, guestPct: rows.length ? rows.filter(r => r.guest).length / rows.length : 0 };
+  } else {
+    const vs = {};
+    let n = 0, aboveAll = 0;
+    for (const r of placed(rows)) {
+      const others = placed(srcAll).filter(x => x['Round'] === r['Round'] && x['Team'] === r['Team']
+        && x['Driver'] !== name && r['Team'] && r['Team'] !== '—');
+      if (!others.length) continue;
+      n++;
+      if (others.every(x => r['Pos.'] < x['Pos.'])) aboveAll++;
+      for (const x of others) {
+        const v = vs[x['Driver']] ||= { driver: x['Driver'], won: 0, lost: 0 };
+        r['Pos.'] < x['Pos.'] ? v.won++ : v.lost++;
+      }
+    }
+    mates = { rounds: n, aboveAll, vs: Object.values(vs).sort((a, b) => b.won + b.lost - a.won - a.lost) };
+  }
+
+  return {
+    kind: isTeam ? 'team' : 'driver', session: isQual ? 'qual' : 'race', name, firsts,
+    entries: { quals: qualRounds.size, n: myRounds.size, streak: series(n => myRounds.has(n)) },
+    pos,
+    results: { n: rows.length, p1: cnt(1), p3: cnt(3), p5: cnt(5), p10: cnt(10),
+      bestPts: topPts, avgPts: myAvgPts, avgPtsRank,
+      top10Streak: series(n => bestPos(n) <= 10) },
+    standing, chase, mates,
+  };
+}
+
 /* ── Сводка сезона для первого экрана ── */
 /* Машины в Чейзе владельцев: посеянные после 26 этапа (chaseSeed в зачёте владельцев на
    последнем этапе). Пока Чейза нет — пусто. */
@@ -929,6 +1108,7 @@ const LOCAL_API = {
   team_card: (s, p) => teamCard(s, p.team),
   car_card: (s, p) => carCard(s, p.car),
   fun: (s, p) => funStats(s, p.session),
+  stats: (s, p) => statsCard(s, p.kind, p.name, p.session, p.noMetric),
   h2h: (s, p) => p.mode === 'teams' ? h2hTeams(s, p.a, p.b, p.metric) : h2hDrivers(s, p.a, p.b, p.metric),
 };
 

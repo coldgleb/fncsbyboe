@@ -14,11 +14,11 @@ function setH2hMetric(on) {
 /* Списки для выбора. Команды — по командному зачёту. Пилоты — группами по командам
    (порядок команд — командный зачёт), внутри — по личному зачёту гонок, гости в конце;
    пилоты без команды — последней группой. Возвращает [[подпись группы | null, [имена]]]. */
-function h2hGroups() {
+function h2hGroups(mode = h2hMode) {
   const teams = state.h2hTeams || [];
   const teamRank = Object.fromEntries(teams.map(t => [t.team, t.rank ?? Infinity]));
   const byRank = rank => (a, b) => (rank[a] ?? Infinity) - (rank[b] ?? Infinity) || a.localeCompare(b, 'ru');
-  if (h2hMode === 'teams') return [[null, teams.map(t => t.team).sort(byRank(teamRank))]];
+  if (mode === 'teams') return [[null, teams.map(t => t.team).sort(byRank(teamRank))]];
 
   const driverRank = Object.fromEntries(state.races.standings.filter(s => s.rank != null).map(s => [s.driver, s.rank]));
   const names = new Set([...state.races.standings, ...state.quals.standings].map(s => s.driver));

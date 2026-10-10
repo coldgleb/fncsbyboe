@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NASCAR Fantasy Championship</title>
   <meta name="theme-color" content="#0c0e12">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
@@ -15,12 +16,14 @@
     /* тема ставится до первой отрисовки, чтобы не было вспышки */
     try { var t = localStorage.getItem('theme'); } catch (e) { }
     document.documentElement.dataset.theme = t || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    /* сайт на всю ширину экрана — тоже до отрисовки */
+    try { if (localStorage.getItem('wide') === '1') document.documentElement.dataset.wide = ''; } catch (e) { }
   </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
   <!-- ?v= — версия сборки: меняется при каждой публикации, чтобы браузер не брал старые
        стили и скрипты из кэша вперемешку с новой страницей -->
-  <link rel="stylesheet" href="css/style.css?v=2026-10-05.2">
+  <link rel="stylesheet" href="css/style.css?v=2026-10-10.1">
 </head>
 
 <body>
@@ -29,6 +32,16 @@
     <div class="wrap">
       <div class="hero-top">
         <p class="eyebrow">Be on Edge &middot; Fantasy NASCAR Cup Series</p>
+        <div class="toolbar-tools">
+          <select class="chart-select w-narrow" id="year-select" title="Сезон" onchange="switchYear(this.value)"></select>
+          <div class="round-toggle" title="Дивизион">
+            <button class="rtog-btn div-btn" data-div="star" onclick="switchDivision('star')">Star</button>
+            <button class="rtog-btn div-btn" data-div="open" onclick="switchDivision('open')">Open</button>
+          </div>
+          <button class="page-btn icon-btn" id="theme-btn" onclick="toggleTheme()" title="Светлая / тёмная тема"></button>
+          <button class="page-btn icon-btn" onclick="refreshData()" title="Обновить: загрузить свежие данные с листов">⟳</button>
+          <button class="page-btn icon-btn wide-btn" id="wide-btn" onclick="toggleWide()" title="На всю ширину экрана">⇔</button>
+        </div>
       </div>
       <h1>NASCAR Fantasy<br>Championship</h1>
       <div id="kpi-grid" class="kpi-grid">
@@ -52,16 +65,8 @@
         <button class="tab-btn" data-tab="entries" onclick="switchTab('entries')">Командная метрика</button>
         <button class="tab-btn" data-tab="h2h" onclick="switchTab('h2h')">H2H</button>
         <button class="tab-btn" data-tab="fun" onclick="switchTab('fun')">Прочее</button>
+        <button class="tab-btn" data-tab="stats" onclick="switchTab('stats')">Статистика</button>
         <button class="tab-btn" data-tab="calc" onclick="switchTab('calc')">Калькулятор</button>
-      </div>
-      <div class="toolbar-tools">
-        <select class="chart-select w-narrow" id="year-select" title="Сезон" onchange="switchYear(this.value)"></select>
-        <div class="round-toggle" title="Дивизион">
-          <button class="rtog-btn div-btn" data-div="star" onclick="switchDivision('star')">Star</button>
-          <button class="rtog-btn div-btn" data-div="open" onclick="switchDivision('open')">Open</button>
-        </div>
-        <button class="page-btn icon-btn" id="theme-btn" onclick="toggleTheme()" title="Светлая / тёмная тема"></button>
-        <button class="page-btn icon-btn" onclick="refreshData()" title="Обновить: загрузить свежие данные с листов">⟳</button>
       </div>
     </div>
   </div>
@@ -292,6 +297,28 @@
       <div id="fun-body"></div>
     </div>
 
+    <div id="tab-stats" class="tab-panel">
+      <div class="pivot-card">
+        <div class="table-header">
+          <h3>Статистика</h3>
+          <div class="table-controls h2h-controls">
+            <div class="round-toggle">
+              <button class="rtog-btn rtog-active" data-stats="driver" onclick="setStatsMode('driver')">Пилот</button>
+              <button class="rtog-btn" data-stats="team" onclick="setStatsMode('team')">Команда</button>
+            </div>
+            <select class="chart-select w-wide" id="stats-pick" onchange="pickStats(this.value)"></select>
+            <div class="round-toggle">
+              <button class="rtog-btn rtog-active" data-stats-s="race" onclick="setStatsSession('race')">Гонки</button>
+              <button class="rtog-btn" data-stats-s="qual" onclick="setStatsSession('qual')">Квалификации</button>
+            </div>
+            <label class="switch-label" id="stats-metric" style="display:none" title="Не учитывать квалификации по метрике"><input type="checkbox" onchange="setStatsNoMetric(this.checked)">
+              Без квалификаций по метрике</label>
+          </div>
+        </div>
+        <div id="stats-body"></div>
+      </div>
+    </div>
+
     <div id="tab-golub" class="tab-panel">
       <div class="round-bar">
         <label class="round-label"
@@ -355,20 +382,21 @@
     </div>
   </main>
 
-  <script src="js/logic.gen.js?v=2026-10-05.2"></script>
-  <script src="js/core.js?v=2026-10-05.2"></script>
-  <script src="js/local-api.js?v=2026-10-05.2"></script>
-  <script src="js/charts.js?v=2026-10-05.2"></script>
-  <script src="js/teams.js?v=2026-10-05.2"></script>
-  <script src="js/drivers.js?v=2026-10-05.2"></script>
-  <script src="js/entries.js?v=2026-10-05.2"></script>
-  <script src="js/golub.js?v=2026-10-05.2"></script>
-  <script src="js/h2h.js?v=2026-10-05.2"></script>
-  <script src="js/fun.js?v=2026-10-05.2"></script>
-  <script src="js/rounds.js?v=2026-10-05.2"></script>
-  <script src="js/modals.js?v=2026-10-05.2"></script>
-  <script src="js/app.js?v=2026-10-05.2"></script>
-  <script src="js/calc.js?v=2026-10-05.2"></script>
+  <script src="js/logic.gen.js?v=2026-10-10.1"></script>
+  <script src="js/core.js?v=2026-10-10.1"></script>
+  <script src="js/local-api.js?v=2026-10-10.1"></script>
+  <script src="js/charts.js?v=2026-10-10.1"></script>
+  <script src="js/teams.js?v=2026-10-10.1"></script>
+  <script src="js/drivers.js?v=2026-10-10.1"></script>
+  <script src="js/entries.js?v=2026-10-10.1"></script>
+  <script src="js/golub.js?v=2026-10-10.1"></script>
+  <script src="js/h2h.js?v=2026-10-10.1"></script>
+  <script src="js/fun.js?v=2026-10-10.1"></script>
+  <script src="js/stats.js?v=2026-10-10.1"></script>
+  <script src="js/rounds.js?v=2026-10-10.1"></script>
+  <script src="js/modals.js?v=2026-10-10.1"></script>
+  <script src="js/app.js?v=2026-10-10.1"></script>
+  <script src="js/calc.js?v=2026-10-10.1"></script>
 </body>
 
 </html>

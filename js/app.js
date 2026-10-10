@@ -147,6 +147,11 @@ async function ensureTab(tab, fresh = state.fresh) {
       return;
     }
 
+    if (tab === 'stats') {
+      await initStats();
+      return;
+    }
+
     if (tab === 'calc') {
       if (typeof calcLoadSheets === 'function') calcLoadSheets();
       return;
@@ -210,5 +215,14 @@ function toggleTheme() {
   syncThemeBtn();
 }
 
+// Сайт на всю ширину экрана (без ограничения 1440px), выбор помнится в браузере
+function toggleWide() {
+  const on = !('wide' in document.documentElement.dataset);
+  if (on) document.documentElement.dataset.wide = ''; else delete document.documentElement.dataset.wide;
+  try { localStorage.setItem('wide', on ? '1' : '0'); } catch (e) { }
+  document.getElementById('wide-btn').classList.toggle('active', on);
+}
+
 syncThemeBtn();
+document.getElementById('wide-btn').classList.toggle('active', 'wide' in document.documentElement.dataset);
 init();

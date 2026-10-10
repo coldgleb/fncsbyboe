@@ -132,6 +132,24 @@ h3 {
   padding-inline: 20px;
 }
 
+/* на всю ширину экрана — кнопка ⇔ */
+:root[data-wide] .wrap,
+:root[data-wide] main {
+  max-width: none;
+}
+
+.wide-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* кнопка ширины нужна только на широком экране */
+@media (max-width: 1480px) {
+  .wide-btn {
+    display: none;
+  }
+}
+
 .hero-top {
   display: flex;
   align-items: center;
@@ -2329,6 +2347,41 @@ table[data-sort="auto"] th:hover {
   .fun-pair {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* ── Вкладка «Статистика» ── */
+.stats-title {
+  margin: 4px 0 14px;
+  font: 800 20px var(--display);
+}
+
+.stats-table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* пилот с номером: свой блок по высоте номера — в списках строки не наезжают */
+.stats-drv {
+  display: inline-block;
+  white-space: nowrap;
+  margin: 2px 0;
+}
+
+.stats-wide {
+  grid-column: 1 / -1;
+}
+
+.stats-roster th {
+  text-transform: none;
+}
+
+.stats-roster td.stats-key {
+  color: var(--muted);
+}
+
+.stats-table td.stats-key {
+  color: var(--muted);
+  width: 50%;
 }
 
 /* ── Вкладка H2H ── */

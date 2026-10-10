@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#0c0e12"/>
+  <!-- клетчатый флаг: древко и полотнище 4×3 -->
+  <rect x="13" y="10" width="5" height="46" rx="2.5" fill="#ffd23f"/>
+  <g fill="#ffd23f">
+    <rect x="18" y="12" width="9" height="9"/><rect x="36" y="12" width="9" height="9"/>
+    <rect x="27" y="21" width="9" height="9"/><rect x="45" y="21" width="9" height="9"/>
+    <rect x="18" y="30" width="9" height="9"/><rect x="36" y="30" width="9" height="9"/>
+  </g>
+  <rect x="18" y="12" width="36" height="27" fill="none" stroke="#ffd23f" stroke-width="2"/>
+</svg>
