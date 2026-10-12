@@ -363,6 +363,90 @@ async function exportProtocolXLSX(type) {
   downloadXLSX(wb, `${exportSeriesLabel()} протокол ${type === 'quals' ? 'квалификаций' : 'гонок'}.xlsx`);
 }
 
+/* Chase Shootout: очки за прогноз (Points) по этапам Чейза — с 27 этапа. В ячейке: очки гонки;
+   «?» — прогноз на квалу этапа был, в гонку не прошёл; «—» — прогноза не было; «*» — очки
+   восстановлены по листу Shootout. Места — по сумме очков (равные — по личному зачёту),
+   «±» — сдвиг места к предыдущему этапу. Вид — как у итоговой таблицы. Данные — rpc chase_points. */
+let chasePointsQuery = '';
+
+async function chaseShootout() {
+  const d = state.chasePoints ||= await rpc('chase_points', season(), state.fresh);
+  const champ = Object.fromEntries(state.races.standings.map(s => [s.driver, s.rank ?? Infinity]));
+  // места по сумме очков до этапа upTo (включительно)
+  const sumTo = (x, upTo) => d.rounds.filter(n => n <= upTo)
+    .reduce((a, n) => a + (typeof x.cells[n] === 'number' ? x.cells[n] : 0), 0);
+  const placesAt = upTo => {
+    const sorted = [...d.drivers].sort((a, b) => sumTo(b, upTo) - sumTo(a, upTo)
+      || (champ[a.driver] ?? Infinity) - (champ[b.driver] ?? Infinity) || a.driver.localeCompare(b.driver));
+    return Object.fromEntries(sorted.map((x, i) => [x.driver, i + 1]));
+  };
+  const last = d.rounds[d.rounds.length - 1], prevRound = d.rounds[d.rounds.length - 2];
+  const place = placesAt(last), prev = prevRound != null ? placesAt(prevRound) : null;
+  const rows = [...d.drivers].sort((a, b) => place[a.driver] - place[b.driver])
+    .map(x => ({ ...x, place: place[x.driver], prev: prev?.[x.driver] ?? null,
+      car: state.carOf?.[x.driver]?.car ?? null, mfr: state.carOf?.[x.driver]?.mfr ?? null, team: teamOf(x.driver) }));
+  return { rounds: d.rounds, rows, hasPrev: !!prev };
+}
+
+async function renderChasePoints() {
+  const wrap = document.getElementById('chase-points');
+  if (!wrap) return;
+  const { rounds, rows, hasPrev } = await chaseShootout();
+  if (!rounds.length) { wrap.innerHTML = '<p class="muted">Чейз ещё не начался</p>'; return; }
+  const inChase = new Set(state.races.standings.filter(s => s.playoff ?? s.chaseSeed != null).map(s => s.driver));
+  const list = rows.filter(x => hit(chasePointsQuery, x.driver, x.team));
+
+  let html = `<div class="table-scroll"><table class="standings-table chase-shootout"><thead><tr>
+<th class="r w-40 pin pin-l0 pw36" title="Место"></th>
+${hasPrev ? '<th class="r w-44 hide-sm" title="Изменение места к прошлому этапу">±</th>' : ''}
+<th class="c w-44 pin pin-l36 pw44">#</th>
+<th class="pin pin-l80 pin-last">Гонщик</th>
+<th class="hide-sm">Команда</th>
+${rounds.map(r => `<th class="r" title="${roundFullName(r)}">${roundLabel(r)}</th>`).join('')}
+<th class="r">Очки</th></tr></thead><tbody>`;
+  for (const x of spoilerRows('chase-points', list, chasePointsQuery)) {
+    const cells = rounds.map(n => {
+      const v = x.cells[n];
+      return v === 'dq' ? `<td class="r">${DQ_MARK}</td>`
+        : v === 'q' ? '<td class="r muted" title="Прогноз был, в гонку не прошёл">?</td>'
+        : v == null ? '<td class="r muted">—</td>'
+        // восстановлено по листу Shootout: в гонку не прошёл, очки за прогноз всё равно посчитаны
+        : x.restored[n] ? `<td class="r restored-pts" title="В гонку не прошёл — очки восстановлены по листу Shootout">${v}*</td>` : `<td class="r">${v}</td>`;
+    }).join('');
+    const rc = [x.place <= 3 ? `rank-${x.place}` : '', inChase.has(x.driver) ? 'row-playoff' : ''].filter(Boolean).join(' ');
+    html += `<tr class="${rc}">
+  <td class="r pin pin-l0 pw36"><span class="pos-badge">${x.place}</span></td>
+  ${hasPrev ? `<td class="r hide-sm">${deltaCell(x.prev, x.place)}</td>` : ''}
+  <td class="c pin pin-l36 pw44">${carBadge(x.car, x.mfr)}</td>
+  <td class="pin pin-l80 pin-last"><strong>${driverLink(x.driver, null, x.driver.replace(' (i)', ''))}</strong></td>
+  <td class="team-text hide-sm">${teamLink(x.team)}${coalMark(x.team)}</td>
+  ${cells}<td class="r"><strong>${x.total}</strong></td></tr>`;
+  }
+  wrap.innerHTML = html + '</tbody></table></div>' + spoilerHtml('chase-points', list.length);
+}
+
+async function exportChaseShootoutXLSX() {
+  const { rounds, rows } = await chaseShootout();
+  const cell = (x, n) => {
+    const v = x.cells[n];
+    return v === 'dq' ? 'DQ' : v === 'q' ? '?' : v == null ? '—' : x.restored[n] ? `${v}*` : v;
+  };
+  downloadTableXLSX(rows, [
+    ['#', x => x.place],
+    ['±', x => x.prev == null ? '' : x.prev - x.place],
+    ['Номер', x => x.car ?? ''],
+    ['Гонщик', x => x.driver],
+    ['Команда', x => x.team ?? ''],
+    ...rounds.map(n => [roundLabel(n), x => cell(x, n)]),
+    ['Очки', x => x.total],
+  ], 'Chase Shootout', `${exportSeriesLabel()} Chase Shootout.xlsx`);
+}
+
+function filterChasePoints(val) {
+  chasePointsQuery = val;
+  renderChasePoints();
+}
+
 function filterPivot(type, val) {
   state.pivot[type] = val;
   renderPivot(type);

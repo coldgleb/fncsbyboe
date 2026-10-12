@@ -276,6 +276,7 @@ function toggleShowAll(key) {
     teams: renderTeams, owners: renderOwners, gains: renderGainPivot, entries: renderEntries,
     teamPivot: renderTeamPivot, teamPosPivot: renderTeamPosPivot,
     'pivot-races': () => renderPivot('races'), 'pivot-quals': () => renderPivot('quals'),
+    'chase-points': renderChasePoints,
     'golub-races': () => renderGolub('races'), 'golub-quals': () => renderGolub('quals'),
     funMfr: renderFun, funStreaks: renderFun,
   };

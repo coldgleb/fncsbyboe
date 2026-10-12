@@ -2349,6 +2349,17 @@ table[data-sort="auto"] th:hover {
   }
 }
 
+/* Chase Shootout — на всю ширину карточки */
+.chase-shootout {
+  width: 100%;
+}
+
+/* очки, восстановленные по листу Shootout (в гонку не прошёл) */
+.restored-pts {
+  color: var(--accent);
+  font-style: italic;
+}
+
 /* ── Вкладка «Статистика» ── */
 .stats-head {
   display: flex;

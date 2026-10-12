@@ -115,18 +115,21 @@ async function buildSeason(year, division, fresh) {
   st.division = division;
 
   // coalitions — необязательный лист: нет его, значит и метки коалиций нет
-  const [results, roundRows, dedRows, changeRows, entryRows, coalRows] = await Promise.all([
+  const [results, roundRows, dedRows, changeRows, entryRows, coalRows, shootRows] = await Promise.all([
     fetchSheet('results', fresh),
     fetchSheet('rounds', fresh),
     fetchSheet('deductions', fresh).catch(() => []),
     fetchSheet('division_changes', fresh).catch(() => []),
     fetchSheet('entries', fresh).catch(() => []),
     fetchSheet('coalitions', fresh).catch(() => []),
+    fetchSheet('Shootout', fresh).catch(() => []),
   ]);
 
   /* Листа coalitions в таблице может не быть, а gviz на неизвестное имя отдаёт первый
      лист книги (results). Поэтому принимаем ответ только если он похож на список команд. */
   const coalitions = coalRows.filter(r => !('sess' in r) && (r.team || r.Team));
+  // Shootout — срезы топ-50 по сумме Points с 27 этапа после каждого этапа (тоже необязательный)
+  st.shootout = shootRows.filter(r => 'rnd' in r && 'points' in r && r.season === year && r.div === DIV_CODE[division]);
 
   const { races: racesRows, quals: qualsRows } = divisionRows(results, year, division);
 
@@ -1024,6 +1027,45 @@ function statsCard(s, kind, name, session, noMetric) {
   };
 }
 
+/* Очки за прогноз (Points) на этапах Чейза: этап → очки, «dq» (в гонке без места),
+   «q» (прогноз на квалу был, в гонку не прошёл); нет ключа — прогноза не было.
+   Порядок — итоговый зачёт гонок, ниже — кто есть только в квалах. */
+function chasePoints(s) {
+  const { L, st } = s;
+  const rounds = st.races.rounds.filter(r => r > L.CHASE_START && !L.SPRINT_ROUNDS.has(r));
+  const cells = {};
+  for (const r of st.quals.rows) if (r['Driver'] && rounds.includes(r['Round'])) (cells[r['Driver']] ||= {})[r['Round']] = 'q';
+  for (const r of st.races.rows) if (r['Driver'] && rounds.includes(r['Round']))
+    (cells[r['Driver']] ||= {})[r['Round']] = r['Points'] ?? 'dq';
+  /* Восстановление «?» по листу Shootout: срез после этапа k — сумма Points за этапы Чейза
+     до k. Минус известные очки — сумма неизвестных до k; если неизвестный один, он найден.
+     Повторяем, пока что-то находится (найденное помогает следующим срезам). */
+  const restored = {};
+  const slices = {};
+  // в листе гости — без «(i)», в протоколах — с ним
+  for (const r of st.shootout || []) (slices[cells[r.name] ? r.name : `${r.name} (i)`] ||= {})[r.rnd] = r.points;
+  for (const [d, byRnd] of Object.entries(slices)) {
+    const c = cells[d];
+    if (!c) continue;
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const [k, total] of Object.entries(byRnd)) {
+        const upTo = rounds.filter(n => n <= Number(k));
+        const unknown = upTo.filter(n => c[n] === 'q');
+        if (unknown.length !== 1) continue;
+        const known = upTo.reduce((a, n) => a + (typeof c[n] === 'number' ? c[n] : 0), 0);
+        c[unknown[0]] = total - known;
+        (restored[d] ||= {})[unknown[0]] = true;
+        changed = true;
+      }
+    }
+  }
+  const order = sliceOf(s, 'races').standings.map(x => x.driver);
+  const names = [...new Set([...order, ...Object.keys(cells)])].filter(d => cells[d]);
+  return { rounds, drivers: names.map(driver => ({ driver, cells: cells[driver], restored: restored[driver] || {},
+    total: Object.values(cells[driver]).reduce((a, v) => a + (typeof v === 'number' ? v : 0), 0) })) };
+}
+
 /* ── Сводка сезона для первого экрана ── */
 /* Машины в Чейзе владельцев: посеянные после 26 этапа (chaseSeed в зачёте владельцев на
    последнем этапе). Пока Чейза нет — пусто. */
@@ -1114,6 +1156,7 @@ const LOCAL_API = {
   team_card: (s, p) => teamCard(s, p.team),
   car_card: (s, p) => carCard(s, p.car),
   fun: (s, p) => funStats(s, p.session),
+  chase_points: s => chasePoints(s),
   stats: (s, p) => statsCard(s, p.kind, p.name, p.session, p.noMetric),
   h2h: (s, p) => p.mode === 'teams' ? h2hTeams(s, p.a, p.b, p.metric) : h2hDrivers(s, p.a, p.b, p.metric),
 };

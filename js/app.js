@@ -75,6 +75,7 @@ async function load(fresh) {
   state.slices = {};
   state.pivotData = null;
   state.fun = null;
+  state.chasePoints = null;
 
   applyMain(await rpc('season_summary', season(), fresh));
   renderKPI();
@@ -94,6 +95,7 @@ async function ensureTab(tab, fresh = state.fresh) {
     if (tab === 'races' || tab === 'quals') {
       await renderTable(tab);
       renderTop5().catch(console.error);
+      if (tab === 'races') renderChasePoints();
       // сводные и графики ниже по странице: по одной, не задерживая таблицу
       (async () => {
         const [races, quals] = [await rpc('pivot', { ...p, session: 'race' }, fresh),
