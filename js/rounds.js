@@ -172,7 +172,7 @@ async function renderRoundMetric(roundNum) {
 /* Команды на этапе: места всех участников команды в гонке и в квалификации, очки NASCAR
    всех вместе и в зачёт — два лучших результата (считает api.round_teams) */
 function roundTeamsTableHtml(list) {
-  const rows = list.filter(t => roundHit(t.team, ...t.members.map(m => m.driver)));
+  const rows = list.filter(t => teamHit(state.roundFilter, t.team, ...t.members.map(m => m.driver)));
   if (!rows.length) return '<div class="round-empty">Нет данных</div>';
   // гость — «(i)» в имени (одни гостевые заявки) или метка у гостевой заявки своего пилота
   const guestMark = m => m.guest && !m.driver.includes('(i)') ? ' <span class="guest-mark" title="Гостевая заявка">(i)</span>' : '';

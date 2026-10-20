@@ -38,6 +38,7 @@ const state = {
     return SEASONS.includes(y) ? y : YEARS[0];
   })(),
   division: new URLSearchParams(location.hash.slice(1)).get('div') === 'star' ? 'star' : 'open',
+  ogPeople: null,                 // { names, teams } с листа og — для поиска «/og» (hit)
   og: false,                      // пасхалка: только пилоты с листа og (клавиши O, G — app.js)
   races: { standings: [], rounds: [], rows: [] },
   quals: { standings: [], rounds: [], rows: [] },
@@ -57,10 +58,24 @@ const state = {
   charts: {}
 };
 
-// Общий предикат поиска: пустой запрос пропускает всё, иначе — подстрока в любом из полей
+// Общий предикат поиска: пустой запрос пропускает всё, иначе — подстрока в любом из полей.
+// Пасхалка: запрос «/og» — только ОГ-люди (пилоты с листа og, загружаются в load()).
+// Сверяем именно имена, не команды: иначе прошли бы не-ОГ пилоты ОГ-команд.
+const OG_QUERY = '/og';
+const isOgPerson = f => !!state.ogPeople?.names.has(String(f ?? '').replace(/ \(i\)$/, '').trim());
+
 function hit(q, ...fields) {
   const s = (q || '').trim().toLowerCase();
+  if (s === OG_QUERY) return fields.some(isOgPerson);
   return !s || fields.some(f => String(f ?? '').toLowerCase().includes(s));
+}
+
+// Поиск в командных таблицах: обычный запрос — по команде и её пилотам, «/og» — по
+// командам из колонки team листа og (нет их — по ОГ-пилотам команды, как в hit)
+function teamHit(q, team, ...drivers) {
+  const og = state.ogPeople?.teams;
+  if ((q || '').trim().toLowerCase() === OG_QUERY && og?.size) return og.has(String(team ?? '').trim());
+  return hit(q, team, ...drivers);
 }
 
 // Гость — либо явно помечен «(i)» в имени, либо в этом сезоне сменил дивизион
@@ -275,7 +290,7 @@ function toggleShowAll(key) {
   state.showAll[key] = !state.showAll[key];
   const redraw = {
     teams: renderTeams, owners: renderOwners, gains: renderGainPivot, entries: renderEntries,
-    teamPivot: renderTeamPivot, teamPosPivot: renderTeamPosPivot,
+    teamPivot: renderTeamPivot, teamPosPivot: renderTeamPosPivot, teamRankPivot: renderTeamRankPivot,
     'pivot-races': () => renderPivot('races'), 'pivot-quals': () => renderPivot('quals'),
     'chase-points': renderChasePoints,
     'golub-races': () => renderGolub('races'), 'golub-quals': () => renderGolub('quals'),
@@ -431,12 +446,17 @@ async function downloadTableXLSX(rows, cols, sheetName, filename) {
   await downloadXLSX(wb, filename);
 }
 
+// Пороги цветов: P1 · до 5 · до 10 · до 20 · до последнего; в режиме OG участников
+// ~17, поэтому шкала сжата: P1 · P2 · P3 · P4–5 · P6 и ниже (подписи легенд — в CSS)
+const POS_STEPS = { full: [5, 10, 20], og: [2, 3, 5] };
+
 function posClass(pos, maxPos) {
   if (pos == null) return 'pos-none';
   if (pos === 1) return 'pos-p1';
-  if (pos <= 5) return 'pos-gray';
-  if (pos <= 10) return 'pos-bronze';
-  if (pos <= 20) return 'pos-green';
+  const [gray, bronze, green] = POS_STEPS[state.og ? 'og' : 'full'];
+  if (pos <= gray) return 'pos-gray';
+  if (pos <= bronze) return 'pos-bronze';
+  if (pos <= green) return 'pos-green';
   if (pos <= (maxPos || 40)) return 'pos-purple';
   return 'pos-low';
 }

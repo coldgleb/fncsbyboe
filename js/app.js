@@ -77,7 +77,12 @@ async function load(fresh) {
   state.fun = null;
   state.chasePoints = null;
 
-  applyMain(await rpc('season_summary', season(), fresh));
+  const [main, og] = await Promise.all([
+    rpc('season_summary', season(), fresh),
+    ogLists(fresh).catch(() => ({ names: new Set(), teams: new Set() })),
+  ]);
+  state.ogPeople = og;
+  applyMain(main);
   renderKPI();
 
   const tab = document.querySelector('.tab-btn.active')?.dataset.tab || 'races';
@@ -112,9 +117,11 @@ async function ensureTab(tab, fresh = state.fresh) {
     if (tab === 'teams') {
       state.teamStandings = await rpc('team_standings', { ...p, upto: 1000 }, fresh);
       state.teamPivot = await rpc('team_standings', { ...p, upto: 1000, with_guest_only: true }, fresh);
+      state.teamRoundRanks = await rpc('team_round_ranks', p, fresh);
       renderTeamTab();
       renderTeamPivot();
       renderTeamPosPivot();
+      renderTeamRankPivot();
       return;
     }
 
@@ -233,10 +240,14 @@ document.addEventListener('keydown', e => {
   if (e.code === 'KeyO') { ogLastO = Date.now(); return; }
   if (e.code !== 'KeyG' || Date.now() - ogLastO > 1000) return;
   ogLastO = 0;
+  toggleOg();
+});
+
+function toggleOg() {
   state.og = !state.og;
   document.documentElement.toggleAttribute('data-og', state.og);
   init();
-});
+}
 
 syncThemeBtn();
 document.getElementById('wide-btn').classList.toggle('active', 'wide' in document.documentElement.dataset);

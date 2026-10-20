@@ -122,10 +122,8 @@ async function renderTable(type) {
   }
   const all = cut.standings;
   const prevRank = cut.prevRank;
-  const q = state.filter[type].toLowerCase();
-  const filtered = q
-    ? all.filter(s => s.driver.toLowerCase().includes(q) || s.team.toLowerCase().includes(q))
-    : all;
+  const q = state.filter[type];
+  const filtered = all.filter(s => hit(q, s.driver, s.team));
 
   // Граница Чейза (топ-16), линия отсечки и «± Чейз» считаются вместе со срезом
   const isChase = isChaseMode(type, at);

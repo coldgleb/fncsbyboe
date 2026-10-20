@@ -516,6 +516,21 @@ function roundTeams(s, round) {
   return { race: session(st.races.rows), qual: metric ? null : session(st.quals.rows) };
 }
 
+/* Место команды на каждом этапе (гонки, без дуэлей и этапа 0) — тот же порядок, что
+   в «Командах на этапе»: очки в зачёт, потом все очки, потом лучшее место.
+   team → этап → место; size — сколько команд было на этапе. */
+function teamRoundRanks(s) {
+  const { L, st } = s;
+  if (st.teamRoundRanks) return st.teamRoundRanks;
+  const ranks = {}, size = {};
+  for (const r of st.races.rounds.filter(r => r !== 0 && !L.SPRINT_ROUNDS.has(r))) {
+    const list = roundTeams(s, r).race;
+    size[r] = list.length;
+    for (const t of list) (ranks[t.team] ||= {})[r] = { rank: t.rank, counted: t.counted };
+  }
+  return (st.teamRoundRanks = { ranks, size });
+}
+
 /* Метрика участников на следующий этап (п. 8.8) */
 function roundMetric(s, round) {
   const { L, st } = s;
@@ -1193,6 +1208,8 @@ const LOCAL_API = {
     const list = p.session === 'qual' ? s.st.quals.chartStandings : s.st.races.chartStandings;
     return list.map(x => ({ driver: x.driver, team: x.team, roundPts: x.roundPts }));
   },
+
+  team_round_ranks: s => teamRoundRanks(s),
 
   team_standings: (s, p) => {
     withTeams(s);

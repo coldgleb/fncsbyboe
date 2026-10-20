@@ -2585,3 +2585,13 @@ table[data-sort="auto"] th:hover {
   box-shadow: 0 4px 14px rgb(0 0 0 / .35);
   pointer-events: none;
 }
+
+/* Подписи легенды мест: в режиме OG шкала цветов другая (posClass в core.js) */
+.lg-og,
+:root[data-og] .lg-full {
+  display: none;
+}
+
+:root[data-og] .lg-og {
+  display: inline;
+}

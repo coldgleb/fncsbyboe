@@ -23,7 +23,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
   <!-- ?v= — версия сборки: меняется при каждой публикации, чтобы браузер не брал старые
        стили и скрипты из кэша вперемешку с новой страницей -->
-  <link rel="stylesheet" href="css/style.css?v=2026-10-20.7">
+  <link rel="stylesheet" href="css/style.css?v=2026-10-20.12">
 </head>
 
 <body>
@@ -100,16 +100,16 @@
                 <div class="legend-dot pos-p1"></div> P1
               </div>
               <div class="legend-item">
-                <div class="legend-dot pos-gray"></div> P2–5
+                <div class="legend-dot pos-gray"></div> <span class="lg-full">P2–5</span><span class="lg-og">P2</span>
               </div>
               <div class="legend-item">
-                <div class="legend-dot pos-bronze"></div> P6–10
+                <div class="legend-dot pos-bronze"></div> <span class="lg-full">P6–10</span><span class="lg-og">P3</span>
               </div>
               <div class="legend-item">
-                <div class="legend-dot pos-green"></div> P11–20
+                <div class="legend-dot pos-green"></div> <span class="lg-full">P11–20</span><span class="lg-og">P4–5</span>
               </div>
               <div class="legend-item">
-                <div class="legend-dot pos-purple"></div> P21–max
+                <div class="legend-dot pos-purple"></div> <span class="lg-full">P21–max</span><span class="lg-og">P6–max</span>
               </div>
               <div class="legend-item">
                 <div class="legend-dot pos-low"></div> ниже
@@ -176,16 +176,16 @@
                 <div class="legend-dot pos-p1"></div> P1
               </div>
               <div class="legend-item">
-                <div class="legend-dot pos-gray"></div> P2–5
+                <div class="legend-dot pos-gray"></div> <span class="lg-full">P2–5</span><span class="lg-og">P2</span>
               </div>
               <div class="legend-item">
-                <div class="legend-dot pos-bronze"></div> P6–10
+                <div class="legend-dot pos-bronze"></div> <span class="lg-full">P6–10</span><span class="lg-og">P3</span>
               </div>
               <div class="legend-item">
-                <div class="legend-dot pos-green"></div> P11–20
+                <div class="legend-dot pos-green"></div> <span class="lg-full">P11–20</span><span class="lg-og">P4–5</span>
               </div>
               <div class="legend-item">
-                <div class="legend-dot pos-purple"></div> P21–max
+                <div class="legend-dot pos-purple"></div> <span class="lg-full">P21–max</span><span class="lg-og">P6–max</span>
               </div>
               <div class="legend-item">
                 <div class="legend-dot pos-low"></div> ниже
@@ -239,15 +239,26 @@
             <input class="search-input" type="search" placeholder="Поиск команды…" oninput="filterTeamPosPivot(this.value)">
             <div class="pivot-legend">
               <div class="legend-item"><div class="legend-dot pos-p1"></div> P1</div>
-              <div class="legend-item"><div class="legend-dot pos-gray"></div> P2–5</div>
-              <div class="legend-item"><div class="legend-dot pos-bronze"></div> P6–10</div>
-              <div class="legend-item"><div class="legend-dot pos-green"></div> P11–20</div>
-              <div class="legend-item"><div class="legend-dot pos-purple"></div> P21–max</div>
+              <div class="legend-item"><div class="legend-dot pos-gray"></div> <span class="lg-full">P2–5</span><span class="lg-og">P2</span></div>
+              <div class="legend-item"><div class="legend-dot pos-bronze"></div> <span class="lg-full">P6–10</span><span class="lg-og">P3</span></div>
+              <div class="legend-item"><div class="legend-dot pos-green"></div> <span class="lg-full">P11–20</span><span class="lg-og">P4–5</span></div>
+              <div class="legend-item"><div class="legend-dot pos-purple"></div> <span class="lg-full">P21–max</span><span class="lg-og">P6–max</span></div>
             </div>
           </div>
         </div>
         <div class="pivot-body">
           <div class="pivot-scroll" id="pivot-teams-pos"></div>
+        </div>
+      </div>
+      <div class="pivot-card">
+        <div class="table-header">
+          <h3 title="Место команды среди всех команд этапа: по очкам в зачёт, при равенстве — по всем очкам и лучшему месту">Место команды на этапе</h3>
+          <div class="table-controls">
+            <input class="search-input" type="search" placeholder="Поиск команды…" oninput="filterTeamRankPivot(this.value)">
+          </div>
+        </div>
+        <div class="pivot-body">
+          <div class="pivot-scroll" id="pivot-teams-rank"></div>
         </div>
       </div>
     </div>
@@ -393,21 +404,21 @@
     </div>
   </main>
 
-  <script src="js/logic.gen.js?v=2026-10-20.7"></script>
-  <script src="js/core.js?v=2026-10-20.7"></script>
-  <script src="js/local-api.js?v=2026-10-20.7"></script>
-  <script src="js/charts.js?v=2026-10-20.7"></script>
-  <script src="js/teams.js?v=2026-10-20.7"></script>
-  <script src="js/drivers.js?v=2026-10-20.7"></script>
-  <script src="js/entries.js?v=2026-10-20.7"></script>
-  <script src="js/golub.js?v=2026-10-20.7"></script>
-  <script src="js/h2h.js?v=2026-10-20.7"></script>
-  <script src="js/fun.js?v=2026-10-20.7"></script>
-  <script src="js/stats.js?v=2026-10-20.7"></script>
-  <script src="js/rounds.js?v=2026-10-20.7"></script>
-  <script src="js/modals.js?v=2026-10-20.7"></script>
-  <script src="js/app.js?v=2026-10-20.7"></script>
-  <script src="js/calc.js?v=2026-10-20.7"></script>
+  <script src="js/logic.gen.js?v=2026-10-20.12"></script>
+  <script src="js/core.js?v=2026-10-20.12"></script>
+  <script src="js/local-api.js?v=2026-10-20.12"></script>
+  <script src="js/charts.js?v=2026-10-20.12"></script>
+  <script src="js/teams.js?v=2026-10-20.12"></script>
+  <script src="js/drivers.js?v=2026-10-20.12"></script>
+  <script src="js/entries.js?v=2026-10-20.12"></script>
+  <script src="js/golub.js?v=2026-10-20.12"></script>
+  <script src="js/h2h.js?v=2026-10-20.12"></script>
+  <script src="js/fun.js?v=2026-10-20.12"></script>
+  <script src="js/stats.js?v=2026-10-20.12"></script>
+  <script src="js/rounds.js?v=2026-10-20.12"></script>
+  <script src="js/modals.js?v=2026-10-20.12"></script>
+  <script src="js/app.js?v=2026-10-20.12"></script>
+  <script src="js/calc.js?v=2026-10-20.12"></script>
 </body>
 
 </html>

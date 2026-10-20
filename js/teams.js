@@ -11,7 +11,7 @@ function scorersTooltip(t) {
 
 function teamTableHtml(standings, q) {
   const starts = (t, kind) => t.drivers.reduce((n, d) => n + (state.attendance[kind][d]?.size || 0), 0);
-  const rows = standings.filter(t => hit(q, t.team, ...t.drivers));
+  const rows = standings.filter(t => teamHit(q, t.team, ...t.drivers));
   let html = `<div class="table-scroll"><table class="standings-table" data-sort="auto"><thead><tr>
 <th class="r w-40 pin pin-l0 pw36"></th>
 <th class="pin pin-l36 pin-last">Команда</th>
@@ -155,7 +155,7 @@ const teamPlaceBadge = t => t.rank == null
 
 function renderTeamPivot() {
   const rounds = state.races.rounds.filter(r => !SPRINT_ROUNDS.has(r));
-  const teams = state.teamPivot.filter(t => hit(state.teamPivotFilter, t.team, ...t.drivers));
+  const teams = state.teamPivot.filter(t => teamHit(state.teamPivotFilter, t.team, ...t.drivers));
 
   let html = `<table class="pivot-table" data-sort="auto"><thead><tr>
     <th class="driver-col">Место · Команда</th>
@@ -192,7 +192,7 @@ function filterTeamPivot(val) {
 // Те же строки и столбцы, но в ячейке — места, которые пошли в зачёт
 function renderTeamPosPivot() {
   const rounds = state.races.rounds.filter(r => !SPRINT_ROUNDS.has(r));
-  const teams = state.teamPivot.filter(t => hit(state.teamPosFilter, t.team, ...t.drivers));
+  const teams = state.teamPivot.filter(t => teamHit(state.teamPosFilter, t.team, ...t.drivers));
 
   let html = `<table class="pivot-table" data-sort="auto"><thead><tr>
     <th class="driver-col">Место · Команда</th>
@@ -220,6 +220,42 @@ function renderTeamPosPivot() {
 function filterTeamPosPivot(val) {
   state.teamPosFilter = val;
   renderTeamPosPivot();
+}
+
+/* Место команды на этапе среди всех команд этапа (как в «По этапам» → «Команды на этапе»).
+   Цвет — по той же шкале, что места пилотов; «Ср.» — среднее место по этапам, где команда была. */
+function renderTeamRankPivot() {
+  const rounds = state.races.rounds.filter(r => r !== 0 && !SPRINT_ROUNDS.has(r));
+  const { ranks = {}, size = {} } = state.teamRoundRanks || {};
+  const teams = state.teamPivot.filter(t => teamHit(state.teamRankFilter, t.team, ...t.drivers));
+
+  let html = `<table class="pivot-table" data-sort="auto"><thead><tr>
+    <th class="driver-col">Место · Команда</th>
+    ${rounds.map(r => `<th title="${roundFullName(r)}">${roundLabel(r)}</th>`).join('')}
+    <th title="Среднее место на этапах, где команда выступала">Ср.</th>
+  </tr></thead><tbody>`;
+
+  for (const t of spoilerRows('teamRankPivot', teams, state.teamRankFilter)) {
+    html += `<tr class="${t.rank <= 3 ? 'rank-' + t.rank : ''}">
+      <td class="driver-cell">${teamPlaceBadge(t)} ${teamLink(t.team)}${coalMark(t.team)}</td>`;
+    const got = [];
+    for (const r of rounds) {
+      const x = ranks[t.team]?.[r];
+      if (x) got.push(x.rank);
+      html += x
+        ? `<td title="${roundFullName(r)}: ${x.rank}-е место из ${size[r]} · ${x.counted} очк. в зачёт">`
+          + `<span class="pos-cell ${posClass(x.rank, size[r])}">${x.rank}</span></td>`
+        : '<td><span class="pos-cell pos-none">—</span></td>';
+    }
+    const avg = got.length ? (got.reduce((a, b) => a + b, 0) / got.length).toFixed(1) : '—';
+    html += `<td class="total-cell">${avg}</td></tr>`;
+  }
+  document.getElementById('pivot-teams-rank').innerHTML = html + '</tbody></table>' + spoilerHtml('teamRankPivot', teams.length);
+}
+
+function filterTeamRankPivot(val) {
+  state.teamRankFilter = val;
+  renderTeamRankPivot();
 }
 
 function renderTeamTab() {

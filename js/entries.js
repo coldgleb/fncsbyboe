@@ -57,7 +57,7 @@ function renderEntries() {
   // метрику (со всеми контрольными точками) считает сервер, часть metric
   const { rounds, byRound } = state.metric || { rounds: [], byRound: {} };
   const at = state.entriesUpTo ?? rounds[rounds.length - 1];
-  const rows = (byRound[at] || []).filter(t => hit(state.entriesFilter, t.team));
+  const rows = (byRound[at] || []).filter(t => teamHit(state.entriesFilter, t.team));
 
   let html = `<div class="table-upto">
   <label>По состоянию на этап:
