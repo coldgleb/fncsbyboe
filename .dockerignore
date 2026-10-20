@@ -1,0 +1,12 @@
+.git
+.claude
+.vercel
+.vercelignore
+node_modules
+package.json
+package-lock.json
+yarn.lock
+*.log
+.env*
+compose.yaml
+Dockerfile

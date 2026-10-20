@@ -1,0 +1,13 @@
+services:
+  fncsbyboe:
+    build: .
+    image: fncsbyboe-web:latest
+    container_name: fncsbyboe-web
+    restart: unless-stopped
+    ports:
+      - 12569:80
+    networks:
+      - proxy-network
+networks:
+  proxy-network:
+    external: true

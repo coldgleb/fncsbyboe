@@ -4,3 +4,7 @@ node_modules
 cloud
 db
 test.js
+Dockerfile
+compose.yaml
+nginx.conf
+.dockerignore
