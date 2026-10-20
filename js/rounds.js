@@ -36,10 +36,11 @@ function renderRoundTable(containerId, rows, cols) {
    П. 4.9.5 (смена производителя обнуляет очки машины) в данных не подтверждается: все «смены»
    оказались разовыми гостевыми строками и опечатками с потерянным ведущим нулём. ── */
 
-const ROUND_VIEWS = ['race', 'qual', 'duel1', 'duel2', 'st-drivers', 'st-teams', 'st-owners', 'metric-next'];
+const ROUND_VIEWS = ['race', 'qual', 'duel1', 'duel2', 'round-teams', 'metric-next'];
 const ROUND_VIEW_LABEL = {
   race: 'Race', qual: 'Qual', duel1: 'Duel 1', duel2: 'Duel 2',
-  'st-drivers': 'Standings', 'st-teams': 'Teams', 'st-owners': 'Owners', 'metric-next': 'Next metric',
+  'metric-next': 'Next metric',
+  'round-teams': 'Teams round',
 };
 let roundView = 'race';
 
@@ -112,13 +113,13 @@ function renderRoundToggle(isRound1) {
   const btns = isRound1
     ? [['qual', 'Квалификация'], ['duel1', 'Дуэль 1'], ['duel2', 'Дуэль 2'], ['race', 'Гонка']]
     : [['race', 'Гонка'], ['qual', 'Квалификация']];
-  btns.push(['st-drivers', 'Личный'], ['st-teams', 'Командный'], ['st-owners', 'Владельцы'], ['metric-next', 'Метрика на след. этап']);
+  btns.push(['round-teams', 'Команды на этапе'], ['metric-next', 'Метрика на след. этап']);
   document.getElementById('round-toggle').innerHTML = btns.map(([v, label]) =>
     `<button class="rtog-btn${roundView === v ? ' rtog-active' : ''}" data-view="${v}" onclick="setRoundView('${v}')">${label}</button>`
   ).join('');
 }
 
-/* ── Зачёты по состоянию после этапа ── */
+/* Изменение места к прошлому срезу (нужно и личному зачёту в drivers.js) */
 function deltaCell(prevRank, rank) {
   if (prevRank == null) return '<span class="muted" title="Новый в зачёте">•</span>';
   const d = prevRank - rank;
@@ -168,80 +169,47 @@ async function renderRoundMetric(roundNum) {
 </tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
-// kind: 'st-drivers' | 'st-teams' | 'st-owners' — зачёт по состоянию после этапа (api.round_standings)
-async function renderRoundStandings(kind, roundNum) {
-  /* Личный зачёт после этапа — тот же срез и та же таблица, что в «Итоговой таблице»:
-     место, изменение, номер, гонщик, команда, авт., очки, «± Чейз», лучший результат. */
-  if (kind === 'st-drivers') {
-    const cut = await fetchSlice('races', roundNum);
-    const full = cut.standings;
-    roundExport = { rows: full, filename: roundExportName(roundNum), cols: [
-      ['#', s => s.rank], ['Номер', s => s.car], ['Гонщик', s => s.driver], ['Команда', s => s.team],
-      ['Авт.', s => s.mfr], ['Очки', s => s.total], ['Победы', s => s.wins],
-      ['Лучший', s => (s.best == null ? '' : 'P' + s.best)], ['Раз', s => s.bestCount || ''],
-    ] };
-    document.getElementById('round-table').innerHTML =
-      standingsTableHtml(full.filter(s => roundHit(s.driver, s.team)), { prevRank: cut.prevRank, at: roundNum, carChase: roundNum > CHASE_START });
-    return;
-  }
+/* Команды на этапе: места всех участников команды в гонке и в квалификации, очки NASCAR
+   всех вместе и в зачёт — два лучших результата (считает api.round_teams) */
+function roundTeamsTableHtml(list) {
+  const rows = list.filter(t => roundHit(t.team, ...t.members.map(m => m.driver)));
+  if (!rows.length) return '<div class="round-empty">Нет данных</div>';
+  // гость — «(i)» в имени (одни гостевые заявки) или метка у гостевой заявки своего пилота
+  const guestMark = m => m.guest && !m.driver.includes('(i)') ? ' <span class="guest-mark" title="Гостевая заявка">(i)</span>' : '';
+  const member = m => `<span class="team-member${m.counted ? ' counted' : ''}" title="${escAttr(
+    `${m.driver}: ${m.pos == null ? 'DQ' : 'P' + m.pos}, ${m.pts} очк. NASCAR, ${m.points ?? '—'} первичных${m.counted ? ' — в зачёт' : ''}${m.guest ? ' (гость)' : ''}`)}">`
+    + (m.pos == null ? DQ_MARK : `<span class="pos-badge">${m.pos}</span>`)
+    + ` <span class="team-member-name">${driverLink(m.driver)}${guestMark(m)}</span></span>`;
+  return `<div class="table-scroll"><table class="standings-table" data-sort="auto"><thead><tr>
+  <th class="r w-36"></th><th>Команда</th>
+  <th title="Места участников команды; зелёным — два зачётных результата">Участники</th>
+  <th class="r" title="Первичные очки — очки за прогноз (Points) двух зачётных результатов команды">Первичные</th>
+  <th class="r" title="Очки NASCAR всех участников команды">Всего</th>
+  <th class="r" title="Очки NASCAR двух лучших результатов команды — столько идёт в командный зачёт">В зачёт</th>
+</tr></thead><tbody>${rows.map(t => `<tr class="${t.rank <= 3 ? 'rank-' + t.rank : ''}">
+  <td class="r"><span class="pos-badge">${t.rank}</span></td>
+  <td><strong>${teamLink(t.team)}</strong>${coalMark(t.team)}</td>
+  <td><div class="team-members">${t.members.map(member).join('')}</div></td>
+  <td class="r">${t.points}</td>
+  <td class="r">${t.total}</td>
+  <td class="r"><strong class="nascar-pts">${t.counted}</strong></td>
+</tr>`).join('')}</tbody></table></div>`;
+}
 
-  const apiKind = { 'st-teams': 'teams', 'st-owners': 'owners' }[kind];
-  const { rows: full, prevRank: prevPos } = await rpc('round_standings', roundArgs(roundNum, { kind: apiKind }), state.fresh);
-
-  let head, body;
-  if (kind === 'st-teams') {
-    const roster = t => t.roster || t.drivers.map(driver => ({ driver, mfr: '' }));
-    roundExport = { rows: full, filename: roundExportName(roundNum), cols: [
-      ['#', t => t.rank], ['Команда', t => t.team],
-      ['Пилоты', t => roster(t).map(x => x.driver).join(' · ')], ['Очки', t => t.total],
-    ] };
-    head = '<th>Команда</th><th class="hide-sm" title="Кто выступал за команду на этом этапе и раньше">Пилоты</th>'
-      + '<th class="r">Очки</th>';
-    body = full.filter(t => roundHit(t.team, ...t.drivers))
-      .map(t => [t.rank, deltaCell(prevPos[t.team], t.rank),
-    `<td><strong>${teamLink(t.team)}</strong>${coalMark(t.team)}</td>
-   <td class="team-text hide-sm">${roster(t).map(x => driverLink(x.driver)).join(' · ') || '—'}</td>
-   <td class="r" title="${scorersTooltip(t)}">${penMark(t)}<strong>${t.total}</strong></td>`]);
-  } else if (kind === 'st-owners') {
-    roundExport = { rows: full, filename: roundExportName(roundNum), cols: [
-      ['#', o => o.rank], ['Номер', o => o.car], ['Команда', o => o.team], ['Авт.', o => o.mfr],
-      ['Пилоты', o => o.drivers.join(' · ')], ['Очки', o => o.total],
-    ] };
-    head = '<th class="c">Номер</th><th>Команда</th><th>Авт.</th><th class="hide-sm">Пилоты</th><th class="r">Очки</th>';
-    body = full.filter(o => roundHit(o.car, ...o.drivers))
-      .map(o => [o.rank, deltaCell(prevPos[o.car], o.rank),
-    `<td class="c">${carBadge(o.car, o.mfr)}</td>
-   <td class="team-text">${teamLink(o.team)}${coalMark(o.team)}</td>
-   <td>${mfrBadge(o.mfr)}</td>
-   <td class="team-text hide-sm">${[...o.drivers].sort().map(driverLink).join(' · ')}</td>
-   <td class="r"><strong>${o.total}</strong></td>`, o.chaseSeed != null ? 'row-playoff' : '']);
-  } else {
-    roundExport = { rows: full, filename: roundExportName(roundNum), cols: [
-      ['#', s => s.rank], ['Номер', s => s.car], ['Гонщик', s => s.driver], ['Команда', s => s.team],
-      ['Авт.', s => s.mfr], ['Победы', s => s.wins], ['Очки', s => s.total],
-    ] };
-    head = '<th class="c">Номер</th><th class="sticky-col">Гонщик</th><th>Команда</th><th>Авт.</th>'
-      + '<th class="r">Победы</th><th class="r">Очки</th>';
-    body = full.filter(s => roundHit(s.driver, s.team))
-      .map(s => [s.rank, deltaCell(prevPos[s.driver], s.rank),
-    `<td class="c">${carBadge(s.car, s.mfr)}</td>
-   <td class="sticky-col"><strong>${driverLink(s.driver)}</strong></td>
-   <td class="team-text">${teamLink(s.team)}${coalMark(s.team)}</td>
-   <td>${mfrBadge(s.mfr)}</td>
-   <td class="r">${s.wins > 0 ? `<strong class="win">${s.wins}</strong>` : '<span class="muted">—</span>'}</td>
-   <td class="r"><strong>${s.total}</strong></td>`]);
-  }
-
-  document.getElementById('round-table').innerHTML = `<div class="table-scroll"><table class="standings-table" data-sort="auto"><thead><tr>
-  <th class="r w-36"></th>
-  <th class="r hide-sm" title="Изменение позиции к прошлому этапу">±</th>${head}
-</tr></thead><tbody>` +
-    // cls — доп. класс строки: у владельцев в Чейзе (с 27 этапа) — row-playoff
-    body.map(([rank, delta, cells, cls = '']) => `<tr class="${rank != null && rank <= 3 ? 'rank-' + rank : ''} ${cls}">
-  <td class="r"><span class="pos-badge">${rank ?? '—'}</span></td>
-  <td class="r hide-sm">${delta}</td>${cells}
-</tr>`).join('') +
-    '</tbody></table></div>';
+async function renderRoundTeams(roundNum) {
+  const { race, qual } = await rpc('round_teams', roundArgs(roundNum), state.fresh);
+  const flat = (list, label) => list.map(t => ({ ...t, session: label }));
+  const full = [...flat(race, 'Гонка'), ...flat(qual || [], 'Квалификация')];
+  const posOf = m => (m.pos == null ? 'DQ' : 'P' + m.pos);
+  roundExport = { rows: full, filename: roundExportName(roundNum), cols: [
+    ['Сессия', t => t.session], ['#', t => t.rank], ['Команда', t => t.team],
+    ['Участники', t => t.members.map(m => `${posOf(m)} ${m.driver}${m.guest && !m.driver.includes('(i)') ? ' (i)' : ''}${m.counted ? ' *' : ''}`).join(' · ')],
+    ['Первичные', t => t.points], ['Всего', t => t.total], ['В зачёт', t => t.counted],
+  ] };
+  document.getElementById('round-table').innerHTML =
+    `<h4 class="round-subtitle">Гонка</h4>${roundTeamsTableHtml(race)}`
+    // квала по метрике (без DR) мест по прогнозу не даёт — её таблицу не показываем
+    + (qual ? `<h4 class="round-subtitle">Квалификация</h4>${roundTeamsTableHtml(qual)}` : '');
 }
 
 async function onRoundChange() {
@@ -257,10 +225,9 @@ async function onRoundChange() {
   writeHash();
 
   const title = document.getElementById('round-table-title');
-  if (roundView.startsWith('st-')) {
-    const titles = { 'st-drivers': 'Личный зачёт', 'st-teams': 'Командный зачёт', 'st-owners': 'Зачёт владельцев' };
-    title.textContent = `${titles[roundView]} после этапа — ${name}`;
-    return renderRoundStandings(roundView, roundNum);
+  if (roundView === 'round-teams') {
+    title.textContent = `Команды на этапе — ${name}`;
+    return renderRoundTeams(roundNum);
   }
   if (roundView === 'metric-next') {
     title.textContent = `Метрика на следующий этап — после этапа ${name}`;

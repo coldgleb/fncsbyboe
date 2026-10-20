@@ -2522,3 +2522,66 @@ table[data-sort="auto"] th:hover {
     text-align: left;
   }
 }
+
+/* «По этапам» → «Команды на этапе»: подзаголовки гонки и квалы, участники команды */
+.round-subtitle {
+  margin: 18px 16px 8px;
+  font: 600 16px var(--display);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted);
+}
+
+.round-subtitle:first-child {
+  margin-top: 4px;
+}
+
+.team-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.team-member {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* незачётные результаты — приглушённое имя; места у всех одного цвета */
+.team-member-name {
+  opacity: .55;
+}
+
+.team-member.counted .team-member-name {
+  opacity: 1;
+}
+
+.team-members .pos-badge,
+.rank-1 .team-members .pos-badge,
+.rank-2 .team-members .pos-badge,
+.rank-3 .team-members .pos-badge {
+  min-width: 24px;
+  height: 22px;
+  font-size: 15px;
+  background: var(--surface2);
+  color: var(--text);
+}
+
+/* Пасхалка OG (O, G на клавиатуре): метка в углу, пока на сайте только пилоты с листа og */
+:root[data-og] body::after {
+  content: 'OG';
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1000;
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: var(--gold);
+  color: var(--on-accent);
+  font: 800 18px/1.2 var(--display);
+  letter-spacing: .08em;
+  box-shadow: 0 4px 14px rgb(0 0 0 / .35);
+  pointer-events: none;
+}

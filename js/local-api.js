@@ -103,10 +103,43 @@ async function legacySheet(name, fresh) {
 // Посчитанный сезон держим готовым: пересчёт нужен только на новых данных
 const seasons = {};
 
-const seasonKey = (year, division) => `${year}:${division}`;
+// режим OG (пасхалка, см. app.js) считается отдельным сезоном: свой кэш, свои зачёты
+const seasonKey = (year, division) => `${year}:${division}${state.og ? ':og' : ''}`;
 
 /* Сборка сезона: те же шаги, что раньше делал load() — листы, календарь, штрафы,
    участие, зачёты. Дорогие части (история мест, сводные, метрика) — по требованию. */
+/* Пасхалка OG: лист og — колонка name (пилоты) и колонка team (команды для командных
+   зачётов; список сам по себе, со строкой пилота не связан). Неизвестный лист gviz отдаёт
+   первым листом книги (results), поэтому берём ответ, только если в нём нет колонки sess. */
+async function ogLists(fresh) {
+  const rows = (await fetchSheet('og', fresh).catch(() => [])).filter(r => !('sess' in r));
+  const list = key => new Set(rows.map(r => (typeof r[key] === 'string' ? r[key].trim() : ''))
+    .filter(Boolean));
+  return { names: list('name'), teams: list('team') };
+}
+
+/* OG: места пересчитываются среди оставшихся — как будто на этапе ехали только они.
+   В каждой сессии этапа (season, div, rnd, sess) места по возрастанию становятся 1, 2, 3…;
+   равные места остаются равными, у DQ места как не было, так и нет. Очки NASCAR, Чейз
+   и командные зачёты дальше считаются уже по новым местам. */
+function ogRerank(rows) {
+  const groups = {};
+  rows.forEach((r, i) => {
+    const pos = toNum(r.pos);
+    if (pos != null) (groups[`${r.season}|${r.div}|${r.rnd}|${r.sess ?? ''}`] ||= []).push([pos, i]);
+  });
+  const out = rows.slice();
+  for (const list of Object.values(groups)) {
+    list.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    list.forEach(([pos, i], k) => {
+      const prev = list[k - 1];
+      const place = prev && prev[0] === pos ? out[prev[1]].pos : k + 1;
+      out[i] = { ...rows[i], pos: place };
+    });
+  }
+  return out;
+}
+
 async function buildSeason(year, division, fresh) {
   const L = makeLogic();
   const { state: st } = L;
@@ -115,7 +148,7 @@ async function buildSeason(year, division, fresh) {
   st.division = division;
 
   // coalitions — необязательный лист: нет его, значит и метки коалиций нет
-  const [results, roundRows, dedRows, changeRows, entryRows, coalRows, shootRows] = await Promise.all([
+  const [allResults, roundRows, dedRows, changeRows, entryRows, coalRows, shootRows, og] = await Promise.all([
     fetchSheet('results', fresh),
     fetchSheet('rounds', fresh),
     fetchSheet('deductions', fresh).catch(() => []),
@@ -123,13 +156,23 @@ async function buildSeason(year, division, fresh) {
     fetchSheet('entries', fresh).catch(() => []),
     fetchSheet('coalitions', fresh).catch(() => []),
     fetchSheet('Shootout', fresh).catch(() => []),
+    state.og ? ogLists(fresh) : null,
   ]);
+  /* В режиме OG на сайте остаются только пилоты с листа og: их строки протоколов, и всё
+     остальное считается уже по ним. Командные зачёты — только по командам из колонки team:
+     у остальных команды в строке нет («—»), и очков они никому не приносят. */
+  const results = !og?.names.size ? allResults : ogRerank(allResults
+    .filter(r => og.names.has(String(r.name || '').trim()))
+    .map(r => !og.teams.size || og.teams.has(String(r.team || '').trim()) ? r : { ...r, team: null }));
 
   /* Листа coalitions в таблице может не быть, а gviz на неизвестное имя отдаёт первый
      лист книги (results). Поэтому принимаем ответ только если он похож на список команд. */
   const coalitions = coalRows.filter(r => !('sess' in r) && (r.team || r.Team));
   // Shootout — срезы топ-50 по сумме Points с 27 этапа после каждого этапа (тоже необязательный)
-  st.shootout = shootRows.filter(r => 'rnd' in r && 'points' in r && r.season === year && r.div === DIV_CODE[division]);
+  st.shootout = shootRows.filter(r => 'rnd' in r && 'points' in r && r.season === year && r.div === DIV_CODE[division]
+    // в режиме OG — только пилоты с листа og, как и в протоколах
+    && (!og?.names.size || og.names.has(String(r.name || '').trim())));
+  if (og?.names.size) st.shootout = ogRerank(st.shootout);
 
   const { races: racesRows, quals: qualsRows } = divisionRows(results, year, division);
 
@@ -297,8 +340,13 @@ function sliceOf(s, session, upto, chase = 'auto') {
        включая гостей и не прошедших ценз (им тоже видно, сколько до Чейза);
      - в регулярном сезоне: в топ-16 — запас над первым вне Чейза, ниже — отставание
        от последнего в Чейзе (гостям и стоящим внутри зоны Чейза без ценза — нет). */
-  const playoffSet = L.buildPlayoffSet(all, at);
   const real = isRealChase(L, chase, at);
+  /* В Чейзе состав уже зафиксирован посевом на 26 этапе (chaseSeed): ценз квалификаций
+     (п. 10.3) — правило регулярного сезона, и пропуски квал после 26 этапа участника
+     из Чейза не выбивают. Пересчёт границы на текущем этапе убирал посеянного из Чейза,
+     хотя очки у него — сетка Чейза (2035 + набранное). */
+  const playoffSet = real ? new Set(all.filter(x => x.chaseSeed != null).map(x => x.driver))
+    : L.buildPlayoffSet(all, at);
   const inChase = all.filter(x => playoffSet.has(x.driver));
   let lastChaseIdx = -1;
   all.forEach((x, i) => { if (playoffSet.has(x.driver)) lastChaseIdx = i; });
@@ -419,39 +467,53 @@ function roundProtocol(s, round, view) {
   return { metric, rows: out };
 }
 
-/* Зачёты по состоянию после этапа: пилоты, команды, владельцы */
-function roundStandings(s, round, kind) {
+/* Команды на этапе — гонка и квалификация: места всех участников команды, очки NASCAR
+   всех вместе и зачётные — два лучших результата, как в командном зачёте
+   (computeTeamStandings: гость команде приносит, «Guest entry» и «—» — ничьи).
+   В квале очки командного зачёта не дают — считаем их так же, по месту, для сравнения. */
+function roundTeams(s, round) {
   const { L, st } = s;
   const n = Number(round);
-  const upTo = m => st.races.rowsWithDuel.filter(r => r['Round'] < m + 1);
-  const prevRound = Math.max(...st.races.rounds.filter(r => r < n), 0);
-
-  if (kind === 'teams') {
-    const rows = L.computeTeamStandings(upTo(n));
-    const prev = prevRound ? L.computeTeamStandings(upTo(prevRound)) : [];
-    // кто выступал за команду на этом этапе и раньше — с марками своих машин
-    const roster = {};
-    for (const r of upTo(n)) {
-      const team = r['Team'], d = r['Driver'];
-      if (!team || team === '—' || team === 'Guest entry' || !d) continue;
-      (roster[team] ||= new Map()).set(d, st.carOf?.[d]?.mfr || r['M.'] || '');
+  const session = src => {
+    // у пилота в протоколе одна строка; если их несколько — берём лучшее место
+    const byDriver = new Map();
+    for (const r of src.filter(x => x['Round'] === n)) {
+      const cur = byDriver.get(r['Driver']);
+      if (!cur || (r['Pos.'] != null && (cur['Pos.'] == null || r['Pos.'] < cur['Pos.']))) byDriver.set(r['Driver'], r);
     }
-    return {
-      rows: rows.map(t => ({
-        ...t,
-        roster: [...(roster[t.team] || new Map())].map(([driver, mfr]) => ({ driver, mfr })),
-      })),
-      prevRank: Object.fromEntries(prev.map(t => [t.team, t.rank])),
-    };
-  }
-  if (kind === 'owners') {
-    const rows = ownersUpTo(s, n, 'auto');
-    const prev = prevRound ? ownersUpTo(s, prevRound, 'auto') : [];
-    return { rows, prevRank: Object.fromEntries(prev.map(o => [o.car, o.rank])) };
-  }
-  const rows = L.computeStandings(upTo(n)).map(x => ({ ...x, top5: (x.bestPositions || []).slice(0, 5) }));
-  const prev = prevRound ? L.computeStandings(upTo(prevRound)) : [];
-  return { rows, prevRank: Object.fromEntries(prev.map(x => [x.driver, x.rank])) };
+    const map = {};
+    for (const r of byDriver.values()) {
+      const team = r['Team'];
+      if (!team || team === '—' || team === 'Guest entry' || !r['Driver']) continue;
+      (map[team] ||= []).push({
+        driver: r['Driver'], pos: r['Pos.'], points: r['Points'] ?? null,
+        pts: L.scorePts(r['Pos.'], n), guest: !!r.guest || L.isGuestDriver(r['Driver']),
+      });
+    }
+    const posKey = m => m.pos ?? Infinity;
+    const list = Object.entries(map)
+      // команда из одних гостей в командном зачёте не участвует
+      .filter(([, members]) => members.some(m => !m.guest))
+      .map(([team, members]) => {
+        members.sort((a, b) => b.pts - a.pts || posKey(a) - posKey(b));
+        members.forEach((m, i) => { m.counted = i < 2 && m.pos != null; });
+        return {
+          team, members,
+          total: members.reduce((sum, m) => sum + m.pts, 0),
+          // первичные — очки за прогноз (столбец Points протокола) двух зачётных результатов
+          points: Math.round(members.filter(m => m.counted).reduce((sum, m) => sum + (Number(m.points) || 0), 0) * 100) / 100,
+          counted: members.slice(0, 2).reduce((sum, m) => sum + m.pts, 0),
+          best: Math.min(...members.map(posKey)),
+        };
+      })
+      .sort((a, b) => b.counted - a.counted || b.total - a.total || a.best - b.best || a.team.localeCompare(b.team));
+    list.forEach((t, i) => { t.rank = i + 1; });
+    return list;
+  };
+  // квала по метрике: ни у кого нет DR1–DR4 — командной таблицы для неё нет
+  const qualRows = st.quals.rows.filter(x => x['Round'] === n);
+  const metric = qualRows.length > 0 && qualRows.every(r => DR_KEYS_LOCAL.every(k => r[k] == null));
+  return { race: session(st.races.rows), qual: metric ? null : session(st.quals.rows) };
 }
 
 /* Метрика участников на следующий этап (п. 8.8) */
@@ -1150,8 +1212,8 @@ const LOCAL_API = {
   golub: (s, p) => { withGolub(s); return (s.st.golub || {})[p.session === 'qual' ? 'quals' : 'races'] || null; },
 
   round_protocol: (s, p) => roundProtocol(s, p.round, p.view),
-  round_standings: (s, p) => roundStandings(s, p.round, p.kind),
   round_metric: (s, p) => roundMetric(s, p.round),
+  round_teams: (s, p) => roundTeams(s, p.round),
   driver_card: (s, p) => driverCard(s, p.driver, p.mode),
   team_card: (s, p) => teamCard(s, p.team),
   car_card: (s, p) => carCard(s, p.car),

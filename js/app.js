@@ -225,6 +225,19 @@ function toggleWide() {
   document.getElementById('wide-btn').classList.toggle('active', on);
 }
 
+/* Пасхалка: O, затем G (за секунду, в любой раскладке) — на сайте остаются только пилоты
+   с листа og; ещё раз O, G — всё как было. Не срабатывает, пока печатают в поле. */
+let ogLastO = 0;
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.('input, textarea, select, [contenteditable]')) return;
+  if (e.code === 'KeyO') { ogLastO = Date.now(); return; }
+  if (e.code !== 'KeyG' || Date.now() - ogLastO > 1000) return;
+  ogLastO = 0;
+  state.og = !state.og;
+  document.documentElement.toggleAttribute('data-og', state.og);
+  init();
+});
+
 syncThemeBtn();
 document.getElementById('wide-btn').classList.toggle('active', 'wide' in document.documentElement.dataset);
 init();

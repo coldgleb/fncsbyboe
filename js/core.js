@@ -38,6 +38,7 @@ const state = {
     return SEASONS.includes(y) ? y : YEARS[0];
   })(),
   division: new URLSearchParams(location.hash.slice(1)).get('div') === 'star' ? 'star' : 'open',
+  og: false,                      // пасхалка: только пилоты с листа og (клавиши O, G — app.js)
   races: { standings: [], rounds: [], rows: [] },
   quals: { standings: [], rounds: [], rows: [] },
   filter: { races: '', quals: '' },
